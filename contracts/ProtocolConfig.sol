@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {FixedGovernanceAccessControl} from "./utils/FixedGovernanceAccessControl.sol";
 
 /// @title ProtocolConfig
 /// @notice Shared immutable and governance-controlled configuration for Main Protocol V1.
-contract ProtocolConfig is AccessControl, Pausable {
+contract ProtocolConfig is FixedGovernanceAccessControl, Pausable {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN");
 
     uint16 public constant MAX_FEE_BPS = 10_000;
@@ -17,7 +17,6 @@ contract ProtocolConfig is AccessControl, Pausable {
     uint64 public challengeWindow;
     address public gatewaySigner;
 
-    error ZeroAddress();
     error InvalidFeeBps(uint256 feeBps);
     error InvalidChallengeWindow();
 
@@ -32,14 +31,13 @@ contract ProtocolConfig is AccessControl, Pausable {
         address treasury_,
         uint64 challengeWindow_,
         address gatewaySigner_,
-        address governanceTimelock,
+        address governanceTimelock_,
         address adminMultisig
-    ) {
+    ) FixedGovernanceAccessControl(governanceTimelock_) {
         if (
             paymentToken_ == address(0) ||
             treasury_ == address(0) ||
             gatewaySigner_ == address(0) ||
-            governanceTimelock == address(0) ||
             adminMultisig == address(0)
         ) {
             revert ZeroAddress();
@@ -53,13 +51,12 @@ contract ProtocolConfig is AccessControl, Pausable {
         challengeWindow = challengeWindow_;
         gatewaySigner = gatewaySigner_;
 
-        _grantRole(DEFAULT_ADMIN_ROLE, governanceTimelock);
         _grantRole(ADMIN_ROLE, adminMultisig);
         _setRoleAdmin(ADMIN_ROLE, DEFAULT_ADMIN_ROLE);
     }
 
     /// @notice Updates the fee applied to future purchases.
-    function setFeeBps(uint16 newFeeBps) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setFeeBps(uint16 newFeeBps) external onlyGovernanceTimelock {
         if (newFeeBps > MAX_FEE_BPS) revert InvalidFeeBps(newFeeBps);
 
         uint16 previousFeeBps = feeBps;
@@ -68,7 +65,7 @@ contract ProtocolConfig is AccessControl, Pausable {
     }
 
     /// @notice Updates the recipient of later treasury withdrawals.
-    function setTreasury(address newTreasury) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setTreasury(address newTreasury) external onlyGovernanceTimelock {
         if (newTreasury == address(0)) revert ZeroAddress();
 
         address previousTreasury = treasury;
@@ -77,7 +74,7 @@ contract ProtocolConfig is AccessControl, Pausable {
     }
 
     /// @notice Updates the review window snapshotted by future Dataset registrations.
-    function setChallengeWindow(uint64 newChallengeWindow) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setChallengeWindow(uint64 newChallengeWindow) external onlyGovernanceTimelock {
         if (newChallengeWindow == 0) revert InvalidChallengeWindow();
 
         uint64 previousWindow = challengeWindow;
@@ -86,7 +83,7 @@ contract ProtocolConfig is AccessControl, Pausable {
     }
 
     /// @notice Updates the public identity used for Gateway-signed responses.
-    function setGatewaySigner(address newGatewaySigner) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function setGatewaySigner(address newGatewaySigner) external onlyGovernanceTimelock {
         if (newGatewaySigner == address(0)) revert ZeroAddress();
 
         address previousSigner = gatewaySigner;

@@ -1,0 +1,196 @@
+import { Contract, getAddress, isAddress, isHexString, keccak256, ZeroAddress } from "ethers";
+import type { NetworkConnection } from "hardhat/types/network";
+
+export type Environment = Record<string, string | undefined>;
+
+export function requiredAddress(env: Environment, name: string): string {
+  const value = env[name];
+  if (value === undefined || !isAddress(value) || value === ZeroAddress) {
+    throw new Error(`${name} must be a nonzero EVM address`);
+  }
+  return getAddress(value);
+}
+
+export function requiredInteger(env: Environment, name: string, min: bigint, max?: bigint): bigint {
+  const raw = env[name];
+  if (raw === undefined || !/^\d+$/.test(raw)) {
+    throw new Error(`${name} must be an integer`);
+  }
+  const value = BigInt(raw);
+  if (value < min || (max !== undefined && value > max)) {
+    throw new Error(`${name} is outside the permitted range`);
+  }
+  return value;
+}
+
+export function requiredBytes32(env: Environment, name: string): string {
+  const value = env[name];
+  if (value === undefined || !isHexString(value, 32)) {
+    throw new Error(`${name} must be a 32-byte hex value`);
+  }
+  return value.toLowerCase();
+}
+
+export function requiredAddressList(env: Environment, name: string): string[] {
+  const raw = env[name];
+  if (raw === undefined || raw.trim() === "") {
+    throw new Error(`${name} must be a comma-separated address list`);
+  }
+  const addresses = raw.split(",").map((value) => {
+    const address = value.trim();
+    if (!isAddress(address) || address === ZeroAddress) {
+      throw new Error(`${name} contains an invalid address`);
+    }
+    return getAddress(address);
+  });
+  if (new Set(addresses.map((address) => address.toLowerCase())).size !== addresses.length) {
+    throw new Error(`${name} contains a duplicate address`);
+  }
+  return addresses;
+}
+
+export function check(condition: boolean, message: string): void {
+  if (!condition) throw new Error(`deployment verification failed: ${message}`);
+}
+
+export function isSimulatedNetwork(connection: NetworkConnection): boolean {
+  return connection.networkConfig.type === "edr-simulated";
+}
+
+function sameAddressSet(actual: string[], expected: string[]): boolean {
+  const normalize = (values: string[]) =>
+    values.map((value) => getAddress(value).toLowerCase()).sort();
+  const normalizedActual = normalize(actual);
+  const normalizedExpected = normalize(expected);
+  return (
+    normalizedActual.length === normalizedExpected.length &&
+    normalizedActual.every((value, index) => value === normalizedExpected[index])
+  );
+}
+
+export interface ExternalValidationResult {
+  chainId: bigint;
+  paymentTokenCodeHash: string;
+  paymentTokenDecimals: bigint;
+  adminMultisigCodeHash?: string;
+  adminMultisigOwners?: string[];
+  adminMultisigThreshold?: bigint;
+}
+
+export async function validateExternalDeploymentInputs(
+  connection: NetworkConnection,
+  env: Environment,
+  paymentToken: string,
+  adminMultisig: string,
+  deployerAddress: string,
+): Promise<ExternalValidationResult> {
+  const { ethers } = connection;
+  const allowEoaAdmin = env.ALLOW_EOA_ADMIN === "true";
+  if (allowEoaAdmin && !isSimulatedNetwork(connection)) {
+    throw new Error("ALLOW_EOA_ADMIN=true is permitted only on a local simulated network");
+  }
+  if (allowEoaAdmin && getAddress(deployerAddress) !== getAddress(adminMultisig)) {
+    throw new Error("ALLOW_EOA_ADMIN=true requires ADMIN_MULTISIG to equal the local deployer");
+  }
+  if (!isSimulatedNetwork(connection)) {
+    check(
+      ["baseSepolia", "base", "arbitrum", "optimism"].includes(connection.networkName),
+      "persistent deployment must use a reviewed Base Sepolia, Base, Arbitrum, or Optimism network config",
+    );
+    check(
+      env.EIP1153_CONFIRMED === "true",
+      "EIP1153_CONFIRMED=true is required after confirming transient-storage support",
+    );
+  }
+
+  const chainId = (await ethers.provider.getNetwork()).chainId;
+  const expectedChainId = requiredInteger(env, "EXPECTED_CHAIN_ID", 1n);
+  check(
+    chainId === expectedChainId,
+    `chain ID mismatch: expected ${expectedChainId}, got ${chainId}`,
+  );
+
+  const paymentCode = await ethers.provider.getCode(paymentToken);
+  check(paymentCode !== "0x", "PAYMENT_TOKEN has no deployed code");
+  const paymentTokenCodeHash = keccak256(paymentCode).toLowerCase();
+  check(
+    paymentTokenCodeHash === requiredBytes32(env, "PAYMENT_TOKEN_CODE_HASH"),
+    "PAYMENT_TOKEN runtime code hash mismatch",
+  );
+
+  const paymentTokenContract = new Contract(
+    paymentToken,
+    [
+      "function totalSupply() view returns (uint256)",
+      "function balanceOf(address) view returns (uint256)",
+      "function allowance(address,address) view returns (uint256)",
+      "function decimals() view returns (uint8)",
+    ],
+    ethers.provider,
+  );
+  let paymentTokenDecimals: bigint;
+  try {
+    const [, , , decimals] = await Promise.all([
+      paymentTokenContract.totalSupply(),
+      paymentTokenContract.balanceOf(deployerAddress),
+      paymentTokenContract.allowance(deployerAddress, adminMultisig),
+      paymentTokenContract.decimals(),
+    ]);
+    paymentTokenDecimals = BigInt(decimals);
+  } catch {
+    throw new Error("PAYMENT_TOKEN does not expose the required ERC-20 read interface");
+  }
+  const expectedDecimals = requiredInteger(env, "PAYMENT_TOKEN_DECIMALS", 0n, 255n);
+  check(paymentTokenDecimals === expectedDecimals, "PAYMENT_TOKEN decimals mismatch");
+
+  if (allowEoaAdmin) {
+    return { chainId, paymentTokenCodeHash, paymentTokenDecimals };
+  }
+
+  const adminCode = await ethers.provider.getCode(adminMultisig);
+  check(adminCode !== "0x", "ADMIN_MULTISIG has no deployed code");
+  const adminMultisigCodeHash = keccak256(adminCode).toLowerCase();
+  check(
+    adminMultisigCodeHash === requiredBytes32(env, "ADMIN_MULTISIG_CODE_HASH"),
+    "ADMIN_MULTISIG runtime code hash mismatch",
+  );
+
+  const expectedOwners = requiredAddressList(env, "ADMIN_MULTISIG_OWNERS");
+  const expectedThreshold = requiredInteger(
+    env,
+    "ADMIN_MULTISIG_THRESHOLD",
+    2n,
+    BigInt(expectedOwners.length),
+  );
+  const multisigContract = new Contract(
+    adminMultisig,
+    [
+      "function getOwners() view returns (address[])",
+      "function getThreshold() view returns (uint256)",
+    ],
+    ethers.provider,
+  );
+  let adminMultisigOwners: string[];
+  let adminMultisigThreshold: bigint;
+  try {
+    const [owners, threshold] = await Promise.all([
+      multisigContract.getOwners() as Promise<string[]>,
+      multisigContract.getThreshold() as Promise<bigint>,
+    ]);
+    adminMultisigOwners = owners.map(getAddress);
+    adminMultisigThreshold = BigInt(threshold);
+  } catch {
+    throw new Error("ADMIN_MULTISIG is not compatible with the required Safe read interface");
+  }
+  check(sameAddressSet(adminMultisigOwners, expectedOwners), "ADMIN_MULTISIG owner set mismatch");
+  check(adminMultisigThreshold === expectedThreshold, "ADMIN_MULTISIG threshold mismatch");
+
+  return {
+    chainId,
+    paymentTokenCodeHash,
+    paymentTokenDecimals,
+    adminMultisigCodeHash,
+    adminMultisigOwners,
+    adminMultisigThreshold,
+  };
+}

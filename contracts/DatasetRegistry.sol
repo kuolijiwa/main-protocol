@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ContributorRegistry} from "./ContributorRegistry.sol";
 import {ProtocolConfig} from "./ProtocolConfig.sol";
+import {FixedGovernanceAccessControl} from "./utils/FixedGovernanceAccessControl.sol";
 import {
     ChallengeStatus,
     Dataset,
@@ -14,7 +14,7 @@ import {IMarketplace} from "./interfaces/IMarketplace.sol";
 
 /// @title DatasetRegistry
 /// @notice Stores immutable Dataset registrations and protocol-controlled lifecycle state.
-contract DatasetRegistry is AccessControl, IDatasetRegistry {
+contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN");
 
     ContributorRegistry public immutable contributorRegistry;
@@ -31,7 +31,6 @@ contract DatasetRegistry is AccessControl, IDatasetRegistry {
     mapping(uint256 datasetId => bytes32 evidenceHash) public override challengeEvidenceHash;
     mapping(uint256 datasetId => bool invalidated) public override weightsInvalidated;
 
-    error ZeroAddress();
     error ProtocolPaused();
     error MarketplaceNotWired();
     error MarketplaceAlreadyWired();
@@ -70,13 +69,12 @@ contract DatasetRegistry is AccessControl, IDatasetRegistry {
     constructor(
         address contributorRegistry_,
         address protocolConfig_,
-        address governanceTimelock,
+        address governanceTimelock_,
         address adminMultisig
-    ) {
+    ) FixedGovernanceAccessControl(governanceTimelock_) {
         if (
             contributorRegistry_ == address(0) ||
             protocolConfig_ == address(0) ||
-            governanceTimelock == address(0) ||
             adminMultisig == address(0)
         ) {
             revert ZeroAddress();
@@ -85,7 +83,6 @@ contract DatasetRegistry is AccessControl, IDatasetRegistry {
         contributorRegistry = ContributorRegistry(contributorRegistry_);
         protocolConfig = ProtocolConfig(protocolConfig_);
 
-        _grantRole(DEFAULT_ADMIN_ROLE, governanceTimelock);
         _grantRole(ADMIN_ROLE, adminMultisig);
         _setRoleAdmin(ADMIN_ROLE, DEFAULT_ADMIN_ROLE);
     }

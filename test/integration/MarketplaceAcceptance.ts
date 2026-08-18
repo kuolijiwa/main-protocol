@@ -179,14 +179,24 @@ describe("Marketplace acceptance coverage", function () {
     const d = await networkHelpers.loadFixture(deployMockFixture);
     const rejectedId = await d.register();
     await d.market.connect(d.contributor).listCopy(rejectedId, 1_000);
+    await d.market.connect(d.contributor).listExclusiveFixed(rejectedId, 5_000);
     await d.datasets.connect(d.admin).recordChallenge(rejectedId, ethers.id("pending"));
-    await d.market.connect(d.contributor).delist(rejectedId, 0);
-    await expect(
-      d.market.connect(d.contributor).listCopy(rejectedId, 1_000),
-    ).to.be.revertedWithCustomError(d.market, "DatasetNotListable");
     await networkHelpers.time.setNextBlockTimestamp(
       await d.datasets.challengeWindowEndsAt(rejectedId),
     );
+    await expect(d.market.connect(d.buyer).buyCopy(rejectedId)).to.be.revertedWithCustomError(
+      d.market,
+      "DatasetNotPurchasable",
+    );
+    await expect(d.market.connect(d.buyer).buyExclusive(rejectedId)).to.be.revertedWithCustomError(
+      d.market,
+      "DatasetNotPurchasable",
+    );
+    await d.market.connect(d.contributor).delist(rejectedId, 0);
+    await d.market.connect(d.contributor).delist(rejectedId, 1);
+    await expect(
+      d.market.connect(d.contributor).listCopy(rejectedId, 1_000),
+    ).to.be.revertedWithCustomError(d.market, "DatasetNotListable");
     await expect(
       d.splitter.connect(d.contributor).claim(rejectedId, d.weight, []),
     ).to.be.revertedWithCustomError(d.splitter, "ClaimNotAvailable");

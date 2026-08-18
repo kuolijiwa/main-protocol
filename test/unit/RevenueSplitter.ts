@@ -176,7 +176,14 @@ describe("RevenueSplitter", function () {
   });
 
   it("accrues fee and net revenue with full backing", async function () {
-    const { splitter, datasetId } = await networkHelpers.loadFixture(accruedFixture);
+    const { splitter, datasetId, token, marketplace, datasets } =
+      await networkHelpers.loadFixture(deployFixture);
+
+    await moveToDeadline(datasets);
+    await token.mint(await splitter.getAddress(), 1_000);
+    await expect(marketplace.accrueRevenue(await splitter.getAddress(), datasetId, 1_000))
+      .to.emit(splitter, "RevenueAccrued")
+      .withArgs(datasetId, 1_000, 25, 975);
 
     expect(await splitter.treasuryBalance()).to.equal(25);
     expect(await splitter.contributorBalance()).to.equal(975);
@@ -199,6 +206,23 @@ describe("RevenueSplitter", function () {
     await expect(
       splitter.connect(labeler).claim(datasetId, LABELER_WEIGHT, labelerProof),
     ).to.be.revertedWithCustomError(splitter, "NothingToClaim");
+  });
+
+  it("blocks claims at deadline minus one and permits them at the exact deadline", async function () {
+    const { splitter, token, marketplace, datasets, labeler, labelerProof, datasetId } =
+      await networkHelpers.loadFixture(deployFixture);
+    const deadline = await datasets.challengeWindowEndsAt(datasetId);
+
+    await networkHelpers.time.setNextBlockTimestamp(deadline - 1n);
+    await expect(
+      splitter.connect(labeler).claim(datasetId, LABELER_WEIGHT, labelerProof),
+    ).to.be.revertedWithCustomError(splitter, "ClaimNotAvailable");
+
+    await token.mint(await splitter.getAddress(), 1_000);
+    await networkHelpers.time.setNextBlockTimestamp(deadline);
+    await marketplace.accrueRevenue(await splitter.getAddress(), datasetId, 1_000);
+    await splitter.connect(labeler).claim(datasetId, LABELER_WEIGHT, labelerProof);
+    expect(await token.balanceOf(labeler.address)).to.equal(390);
   });
 
   it("rejects wrong weights and proofs", async function () {
@@ -271,6 +295,19 @@ describe("RevenueSplitter", function () {
     await token.mint(await splitter.getAddress(), 1_000);
     await marketplace.accrueRevenue(await splitter.getAddress(), datasetId, 1_000);
     expect(await splitter.claimable(datasetId, labeler.address, LABELER_WEIGHT)).to.equal(390);
+    await splitter.connect(labeler).claim(datasetId, LABELER_WEIGHT, labelerProof);
+    expect(await token.balanceOf(labeler.address)).to.equal(780);
+  });
+
+  it("allows a late claimant to collect its full share after multiple sales", async function () {
+    const { splitter, token, marketplace, datasets, labeler, labelerProof, datasetId } =
+      await networkHelpers.loadFixture(deployFixture);
+    await moveToDeadline(datasets);
+    await token.mint(await splitter.getAddress(), 2_000);
+    await marketplace.accrueRevenue(await splitter.getAddress(), datasetId, 1_000);
+    await marketplace.accrueRevenue(await splitter.getAddress(), datasetId, 1_000);
+
+    expect(await splitter.claimable(datasetId, labeler.address, LABELER_WEIGHT)).to.equal(780);
     await splitter.connect(labeler).claim(datasetId, LABELER_WEIGHT, labelerProof);
     expect(await token.balanceOf(labeler.address)).to.equal(780);
   });
@@ -354,9 +391,9 @@ describe("RevenueSplitter", function () {
     const proxyAddress = await splitter.getAddress();
     const unauthorizedFactory = await ethers.getContractFactory("RevenueSplitterV2", outsider);
 
-    await expect(
-      upgradesApi.upgradeProxy(proxyAddress, unauthorizedFactory, { kind: "uups" }),
-    ).to.be.revertedWithCustomError(splitter, "AccessControlUnauthorizedAccount");
+    await expect(upgradesApi.upgradeProxy(proxyAddress, unauthorizedFactory, { kind: "uups" }))
+      .to.be.revertedWithCustomError(splitter, "OnlyGovernanceTimelock")
+      .withArgs(outsider.address);
 
     const authorizedFactory = await ethers.getContractFactory("RevenueSplitterV2", governance);
     const upgraded = await upgradesApi.upgradeProxy(proxyAddress, authorizedFactory, {

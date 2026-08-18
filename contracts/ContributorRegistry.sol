@@ -1,18 +1,17 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {FixedGovernanceAccessControl} from "./utils/FixedGovernanceAccessControl.sol";
 
 /// @title ContributorRegistry
 /// @notice Manages Main Protocol contributor/operator permissions and operator attribution.
-contract ContributorRegistry is AccessControl {
+contract ContributorRegistry is FixedGovernanceAccessControl {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN");
     bytes32 public constant OPERATOR_ROLE = keccak256("OPERATOR");
     bytes32 public constant CONTRIBUTOR_ROLE = keccak256("CONTRIBUTOR");
 
     mapping(address operator => address contributor) private _operatorContributors;
 
-    error ZeroAddress();
     error OperatorNotAllowlisted(address operator);
     error ContributorNotAllowlisted(address contributor);
 
@@ -22,14 +21,13 @@ contract ContributorRegistry is AccessControl {
         address indexed newContributor
     );
 
-    /// @param governanceTimelock Address that holds DEFAULT_ADMIN_ROLE.
+    /// @param governanceTimelock_ Address that holds DEFAULT_ADMIN_ROLE.
     /// @param adminMultisig Address that holds the operational ADMIN_ROLE.
-    constructor(address governanceTimelock, address adminMultisig) {
-        if (governanceTimelock == address(0) || adminMultisig == address(0)) {
-            revert ZeroAddress();
-        }
-
-        _grantRole(DEFAULT_ADMIN_ROLE, governanceTimelock);
+    constructor(
+        address governanceTimelock_,
+        address adminMultisig
+    ) FixedGovernanceAccessControl(governanceTimelock_) {
+        if (adminMultisig == address(0)) revert ZeroAddress();
         _grantRole(ADMIN_ROLE, adminMultisig);
 
         _setRoleAdmin(ADMIN_ROLE, DEFAULT_ADMIN_ROLE);

@@ -113,16 +113,35 @@ describe("Marketplace integration", function () {
     await expect(market.connect(contributor).listCopy(datasetId, 1_000))
       .to.emit(market, "CopyListed")
       .withArgs(datasetId, 1_000);
-    await market.connect(contributor).listExclusiveFixed(datasetId, 5_000);
+    await expect(market.connect(contributor).listExclusiveFixed(datasetId, 5_000))
+      .to.emit(market, "ExclusiveListed")
+      .withArgs(datasetId, 5_000);
     expect(await market.priceOf(datasetId, 0)).to.equal(1_000);
     expect(await market.priceOf(datasetId, 1)).to.equal(5_000);
     expect((await datasets.getDataset(datasetId)).status).to.equal(1);
     await expect(
       market.connect(contributor).listCopy(datasetId, 2_000),
     ).to.be.revertedWithCustomError(market, "ListingAlreadyActive");
-    await market.connect(contributor).delist(datasetId, 0);
+    await expect(market.connect(contributor).delist(datasetId, 0))
+      .to.emit(market, "ListingDelisted")
+      .withArgs(datasetId, 0);
+    await expect(market.connect(contributor).delist(datasetId, 0)).to.be.revertedWithCustomError(
+      market,
+      "ListingNotActive",
+    );
     await market.connect(contributor).listCopy(datasetId, 2_000);
     expect(await market.priceOf(datasetId, 0)).to.equal(2_000);
+    const listing = await market.getListing(datasetId, 0);
+    expect(listing.datasetId).to.equal(datasetId);
+    expect(listing.kind).to.equal(0);
+    expect(listing.price).to.equal(2_000);
+    expect(listing.active).to.equal(true);
+
+    const missingListing = await market.getListing(999, 1);
+    expect(missingListing.datasetId).to.equal(999);
+    expect(missingListing.kind).to.equal(1);
+    expect(missingListing.price).to.equal(0);
+    expect(missingListing.active).to.equal(false);
   });
 
   it("enforces contributor ownership, nonzero prices, and pause behavior", async function () {
@@ -137,8 +156,17 @@ describe("Marketplace integration", function () {
       "InvalidPrice",
     );
     await market.connect(contributor).listCopy(datasetId, 1_000);
+    await market.connect(contributor).listExclusiveFixed(datasetId, 5_000);
+    await expect(market.connect(buyer).delist(datasetId, 0)).to.be.revertedWithCustomError(
+      market,
+      "DatasetNotOwned",
+    );
     await config.connect(admin).pause();
     await expect(market.connect(buyer).buyCopy(datasetId)).to.be.revertedWithCustomError(
+      market,
+      "ProtocolPaused",
+    );
+    await expect(market.connect(buyer).buyExclusive(datasetId)).to.be.revertedWithCustomError(
       market,
       "ProtocolPaused",
     );
@@ -181,6 +209,43 @@ describe("Marketplace integration", function () {
       market,
       "DuplicateCopyLicense",
     );
+  });
+
+  it("allows distinct buyers to purchase one Copy license each", async function () {
+    const { market, datasets, nft, contributor, buyer, buyer2, datasetId } =
+      await networkHelpers.loadFixture(deployFixture);
+    await market.connect(contributor).listCopy(datasetId, 1_000);
+    await networkHelpers.time.setNextBlockTimestamp(
+      await datasets.challengeWindowEndsAt(datasetId),
+    );
+
+    await market.connect(buyer).buyCopy(datasetId);
+    await market.connect(buyer2).buyCopy(datasetId);
+
+    const copyId = await nft.tokenId(datasetId, 0);
+    expect(await nft.balanceOf(buyer.address, copyId)).to.equal(1);
+    expect(await nft.balanceOf(buyer2.address, copyId)).to.equal(1);
+    expect((await datasets.getDataset(datasetId)).copiesSold).to.equal(2);
+  });
+
+  it("applies a fee change only to purchases executed after the change", async function () {
+    const { market, datasets, splitter, config, governance, contributor, buyer, buyer2, register } =
+      await networkHelpers.loadFixture(deployFixture);
+    await market.connect(contributor).listCopy(1, 1_000);
+    await networkHelpers.time.setNextBlockTimestamp(await datasets.challengeWindowEndsAt(1));
+    await market.connect(buyer).buyCopy(1);
+    expect(await splitter.cumulativeRevenue(1)).to.equal(975);
+    expect(await splitter.treasuryBalance()).to.equal(25);
+
+    await config.connect(governance).setFeeBps(500);
+    await register();
+    await market.connect(contributor).listCopy(2, 1_000);
+    await networkHelpers.time.setNextBlockTimestamp(await datasets.challengeWindowEndsAt(2));
+    await market.connect(buyer2).buyCopy(2);
+
+    expect(await splitter.cumulativeRevenue(1)).to.equal(975);
+    expect(await splitter.cumulativeRevenue(2)).to.equal(950);
+    expect(await splitter.treasuryBalance()).to.equal(75);
   });
 
   it("automatically closes true-exclusive listing on the first Copy sale", async function () {
@@ -235,9 +300,9 @@ describe("Marketplace integration", function () {
     const { market, governance, buyer } = await networkHelpers.loadFixture(deployFixture);
     const proxy = await market.getAddress();
     const unauthorized = await ethers.getContractFactory("MarketplaceV2", buyer);
-    await expect(
-      upgradesApi.upgradeProxy(proxy, unauthorized, { kind: "uups" }),
-    ).to.be.revertedWithCustomError(market, "AccessControlUnauthorizedAccount");
+    await expect(upgradesApi.upgradeProxy(proxy, unauthorized, { kind: "uups" }))
+      .to.be.revertedWithCustomError(market, "OnlyGovernanceTimelock")
+      .withArgs(buyer.address);
 
     const authorized = await ethers.getContractFactory("MarketplaceV2", governance);
     const upgraded = await upgradesApi.upgradeProxy(proxy, authorized, { kind: "uups" });

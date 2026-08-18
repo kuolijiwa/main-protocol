@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
+import {FixedGovernanceAccessControl} from "./utils/FixedGovernanceAccessControl.sol";
 import {
     Dataset,
     DatasetStatus,
@@ -13,16 +14,15 @@ import {IEntitlementNFT} from "./interfaces/IEntitlementNFT.sol";
 
 /// @title EntitlementNFT
 /// @notice ERC-1155 access rights for non-transferable Copy licenses and transferable Exclusive titles.
-contract EntitlementNFT is ERC1155, AccessControl, IEntitlementNFT {
+contract EntitlementNFT is ERC1155, FixedGovernanceAccessControl, IEntitlementNFT {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN");
 
     IDatasetRegistry public immutable datasetRegistry;
     address public marketplace;
 
-    mapping(uint256 id => bool copyToken) private _isCopyToken;
+    mapping(uint256 id => bool transferable) private _isTransferableExclusiveToken;
     mapping(uint256 datasetId => bool minted) public exclusiveMinted;
 
-    error ZeroAddress();
     error MarketplaceAlreadyWired();
     error InvalidMarketplace(address marketplace);
     error OnlyMarketplace(address caller);
@@ -35,19 +35,14 @@ contract EntitlementNFT is ERC1155, AccessControl, IEntitlementNFT {
 
     constructor(
         address datasetRegistry_,
-        address governanceTimelock,
+        address governanceTimelock_,
         address adminMultisig
-    ) ERC1155("") {
-        if (
-            datasetRegistry_ == address(0) ||
-            governanceTimelock == address(0) ||
-            adminMultisig == address(0)
-        ) {
+    ) ERC1155("") FixedGovernanceAccessControl(governanceTimelock_) {
+        if (datasetRegistry_ == address(0) || adminMultisig == address(0)) {
             revert ZeroAddress();
         }
 
         datasetRegistry = IDatasetRegistry(datasetRegistry_);
-        _grantRole(DEFAULT_ADMIN_ROLE, governanceTimelock);
         _grantRole(ADMIN_ROLE, adminMultisig);
         _setRoleAdmin(ADMIN_ROLE, DEFAULT_ADMIN_ROLE);
     }
@@ -86,7 +81,6 @@ contract EntitlementNFT is ERC1155, AccessControl, IEntitlementNFT {
             if (balanceOf(to, id) != 0) {
                 revert DuplicateCopyLicense(datasetId, to);
             }
-            _isCopyToken[id] = true;
         } else {
             if (dataset.status != DatasetStatus.ExclusivelySold) {
                 revert InvalidMintState(datasetId, dataset.status, kind);
@@ -95,6 +89,7 @@ contract EntitlementNFT is ERC1155, AccessControl, IEntitlementNFT {
                 revert ExclusiveTitleAlreadyMinted(datasetId);
             }
             exclusiveMinted[datasetId] = true;
+            _isTransferableExclusiveToken[id] = true;
         }
 
         _mint(to, id, 1, "");
@@ -129,7 +124,9 @@ contract EntitlementNFT is ERC1155, AccessControl, IEntitlementNFT {
     ) internal override {
         if (from != address(0) && to != address(0)) {
             for (uint256 i = 0; i < ids.length; ++i) {
-                if (_isCopyToken[ids[i]]) {
+                // Exclusive titles become transferable when minted. Every other ID is
+                // rejected, which also covers a computed Copy token ID before its first mint.
+                if (!_isTransferableExclusiveToken[ids[i]]) {
                     revert CopyLicenseNonTransferable(ids[i]);
                 }
             }

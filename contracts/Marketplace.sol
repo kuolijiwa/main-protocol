@@ -15,7 +15,7 @@ import {
     SaleKind
 } from "./interfaces/IDatasetRegistry.sol";
 import {IEntitlementNFT} from "./interfaces/IEntitlementNFT.sol";
-import {IMarketplace} from "./interfaces/IMarketplace.sol";
+import {IMarketplace, Listing} from "./interfaces/IMarketplace.sol";
 import {IRevenueSplitter} from "./interfaces/IRevenueSplitter.sol";
 
 /// @title Marketplace
@@ -29,17 +29,11 @@ contract Marketplace is
 {
     using SafeERC20 for IERC20;
 
-    struct Listing {
-        uint256 datasetId;
-        SaleKind kind;
-        uint256 price;
-        bool active;
-    }
-
     ProtocolConfig public protocolConfig;
     IDatasetRegistry public datasetRegistry;
     IEntitlementNFT public entitlementNFT;
     IRevenueSplitter public revenueSplitter;
+    address public governanceTimelock;
 
     mapping(uint256 datasetId => mapping(SaleKind kind => Listing listing)) private _listings;
 
@@ -56,6 +50,8 @@ contract Marketplace is
     error DuplicateCopyLicense(uint256 datasetId, address buyer);
     error IncorrectTokenTransfer(uint256 expected, uint256 received);
     error OnlyDatasetRegistry(address caller);
+    error OnlyGovernanceTimelock(address caller);
+    error GovernanceRoleLocked(address account);
 
     event CopyListed(uint256 indexed datasetId, uint256 price);
     event ExclusiveListed(uint256 indexed datasetId, uint256 price);
@@ -73,14 +69,14 @@ contract Marketplace is
         address datasetRegistry_,
         address entitlementNFT_,
         address revenueSplitter_,
-        address governanceTimelock
+        address governanceTimelock_
     ) external initializer {
         if (
             protocolConfig_ == address(0) ||
             datasetRegistry_ == address(0) ||
             entitlementNFT_ == address(0) ||
             revenueSplitter_ == address(0) ||
-            governanceTimelock == address(0)
+            governanceTimelock_ == address(0)
         ) {
             revert ZeroAddress();
         }
@@ -89,7 +85,8 @@ contract Marketplace is
         datasetRegistry = IDatasetRegistry(datasetRegistry_);
         entitlementNFT = IEntitlementNFT(entitlementNFT_);
         revenueSplitter = IRevenueSplitter(revenueSplitter_);
-        _grantRole(DEFAULT_ADMIN_ROLE, governanceTimelock);
+        governanceTimelock = governanceTimelock_;
+        _grantRole(DEFAULT_ADMIN_ROLE, governanceTimelock_);
     }
 
     function listCopy(uint256 datasetId, uint256 price) external override {
@@ -166,8 +163,15 @@ contract Marketplace is
         _deactivate(datasetId, SaleKind.Exclusive);
     }
 
-    function getListing(uint256 datasetId, SaleKind kind) external view returns (Listing memory) {
-        return _listings[datasetId][kind];
+    function getListing(
+        uint256 datasetId,
+        SaleKind kind
+    ) external view override returns (Listing memory) {
+        Listing memory listing = _listings[datasetId][kind];
+        if (listing.datasetId == 0) {
+            return Listing(datasetId, kind, 0, false);
+        }
+        return listing;
     }
 
     function _list(uint256 datasetId, SaleKind kind, uint256 price) private {
@@ -245,7 +249,33 @@ contract Marketplace is
         }
     }
 
-    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    /// @dev DEFAULT_ADMIN_ROLE cannot be granted outside the fixed governance timelock.
+    function grantRole(bytes32 role, address account) public virtual override {
+        if (role == DEFAULT_ADMIN_ROLE && account != governanceTimelock) {
+            revert GovernanceRoleLocked(account);
+        }
+        super.grantRole(role, account);
+    }
 
-    uint256[44] private __gap;
+    /// @dev The fixed governance timelock's DEFAULT_ADMIN_ROLE cannot be revoked.
+    function revokeRole(bytes32 role, address account) public virtual override {
+        if (role == DEFAULT_ADMIN_ROLE && account == governanceTimelock) {
+            revert GovernanceRoleLocked(account);
+        }
+        super.revokeRole(role, account);
+    }
+
+    /// @dev The fixed governance timelock cannot renounce DEFAULT_ADMIN_ROLE.
+    function renounceRole(bytes32 role, address account) public virtual override {
+        if (role == DEFAULT_ADMIN_ROLE && account == governanceTimelock) {
+            revert GovernanceRoleLocked(account);
+        }
+        super.renounceRole(role, account);
+    }
+
+    function _authorizeUpgrade(address) internal view override {
+        if (msg.sender != governanceTimelock) revert OnlyGovernanceTimelock(msg.sender);
+    }
+
+    uint256[43] private __gap;
 }

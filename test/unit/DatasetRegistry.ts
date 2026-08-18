@@ -173,7 +173,14 @@ describe("DatasetRegistry", function () {
       expect(dataset.weightsRoot).to.equal(params.weightsRoot);
       expect(dataset.totalWeight).to.equal(params.totalWeight);
       expect(dataset.status).to.equal(0);
+      expect(dataset.policy.allowCopy).to.equal(params.policy.allowCopy);
+      expect(dataset.policy.allowExclusive).to.equal(params.policy.allowExclusive);
+      expect(dataset.policy.exclusiveRequiresZeroCopies).to.equal(
+        params.policy.exclusiveRequiresZeroCopies,
+      );
+      expect(dataset.policy.licensesTransferable).to.equal(params.policy.licensesTransferable);
       expect(dataset.copiesSold).to.equal(0);
+      expect(dataset.tag).to.equal(params.tag);
       expect(dataset.createdAt).to.equal(block!.timestamp);
       expect(await datasetRegistry.challengeWindowEndsAt(1)).to.equal(
         BigInt(block!.timestamp + CHALLENGE_WINDOW),

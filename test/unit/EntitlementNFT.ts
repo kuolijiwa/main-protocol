@@ -127,6 +127,9 @@ describe("EntitlementNFT", function () {
     await expect(
       fresh.connect(outsider).setMarketplaceOnce(await mock.getAddress()),
     ).to.be.revertedWithCustomError(fresh, "AccessControlUnauthorizedAccount");
+    await expect(fresh.connect(outsider).mint(outsider.address, 1, 0))
+      .to.be.revertedWithCustomError(fresh, "OnlyMarketplace")
+      .withArgs(outsider.address);
     await expect(
       fresh.connect(admin).setMarketplaceOnce(ZeroAddress),
     ).to.be.revertedWithCustomError(fresh, "InvalidMarketplace");
@@ -199,6 +202,31 @@ describe("EntitlementNFT", function () {
     )
       .to.be.revertedWithCustomError(nft, "CopyLicenseNonTransferable")
       .withArgs(copyId);
+  });
+
+  it("rejects zero-value transfers before a Copy license or Exclusive title exists", async function () {
+    const { nft, buyer, nextOwner, datasetId } = await networkHelpers.loadFixture(deployFixture);
+    const copyId = await nft.tokenId(datasetId, 0);
+    const exclusiveId = await nft.tokenId(datasetId, 1);
+
+    await expect(
+      nft.connect(buyer).safeTransferFrom(buyer.address, nextOwner.address, copyId, 0, "0x"),
+    )
+      .to.be.revertedWithCustomError(nft, "CopyLicenseNonTransferable")
+      .withArgs(copyId);
+    await expect(
+      nft
+        .connect(buyer)
+        .safeBatchTransferFrom(buyer.address, nextOwner.address, [copyId], [0], "0x"),
+    )
+      .to.be.revertedWithCustomError(nft, "CopyLicenseNonTransferable")
+      .withArgs(copyId);
+
+    await expect(
+      nft.connect(buyer).safeTransferFrom(buyer.address, nextOwner.address, exclusiveId, 0, "0x"),
+    )
+      .to.be.revertedWithCustomError(nft, "CopyLicenseNonTransferable")
+      .withArgs(exclusiveId);
   });
 
   it("applies exclusive access and follows Exclusive title transfers", async function () {

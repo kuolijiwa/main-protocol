@@ -30,6 +30,7 @@ contract RevenueSplitter is
     ProtocolConfig public protocolConfig;
     IDatasetRegistry public datasetRegistry;
     address public marketplace;
+    address public governanceTimelock;
 
     uint256 public treasuryBalance;
     uint256 public contributorBalance;
@@ -48,6 +49,8 @@ contract RevenueSplitter is
     error InvalidMerkleProof();
     error NothingToClaim();
     error NoTreasuryBalance();
+    error OnlyGovernanceTimelock(address caller);
+    error GovernanceRoleLocked(address account);
 
     event MarketplaceWired(address indexed marketplace);
     event RevenueAccrued(uint256 indexed datasetId, uint256 gross, uint256 fee, uint256 net);
@@ -62,13 +65,13 @@ contract RevenueSplitter is
     function initialize(
         address protocolConfig_,
         address datasetRegistry_,
-        address governanceTimelock,
+        address governanceTimelock_,
         address adminMultisig
     ) external initializer {
         if (
             protocolConfig_ == address(0) ||
             datasetRegistry_ == address(0) ||
-            governanceTimelock == address(0) ||
+            governanceTimelock_ == address(0) ||
             adminMultisig == address(0)
         ) {
             revert ZeroAddress();
@@ -77,7 +80,8 @@ contract RevenueSplitter is
         __AccessControl_init();
         protocolConfig = ProtocolConfig(protocolConfig_);
         datasetRegistry = IDatasetRegistry(datasetRegistry_);
-        _grantRole(DEFAULT_ADMIN_ROLE, governanceTimelock);
+        governanceTimelock = governanceTimelock_;
+        _grantRole(DEFAULT_ADMIN_ROLE, governanceTimelock_);
         _grantRole(ADMIN_ROLE, adminMultisig);
         _setRoleAdmin(ADMIN_ROLE, DEFAULT_ADMIN_ROLE);
     }
@@ -183,7 +187,33 @@ contract RevenueSplitter is
         return IERC20(protocolConfig.paymentToken());
     }
 
-    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
+    /// @dev DEFAULT_ADMIN_ROLE cannot be granted outside the fixed governance timelock.
+    function grantRole(bytes32 role, address account) public virtual override {
+        if (role == DEFAULT_ADMIN_ROLE && account != governanceTimelock) {
+            revert GovernanceRoleLocked(account);
+        }
+        super.grantRole(role, account);
+    }
 
-    uint256[44] private __gap;
+    /// @dev The fixed governance timelock's DEFAULT_ADMIN_ROLE cannot be revoked.
+    function revokeRole(bytes32 role, address account) public virtual override {
+        if (role == DEFAULT_ADMIN_ROLE && account == governanceTimelock) {
+            revert GovernanceRoleLocked(account);
+        }
+        super.revokeRole(role, account);
+    }
+
+    /// @dev The fixed governance timelock cannot renounce DEFAULT_ADMIN_ROLE.
+    function renounceRole(bytes32 role, address account) public virtual override {
+        if (role == DEFAULT_ADMIN_ROLE && account == governanceTimelock) {
+            revert GovernanceRoleLocked(account);
+        }
+        super.renounceRole(role, account);
+    }
+
+    function _authorizeUpgrade(address) internal view override {
+        if (msg.sender != governanceTimelock) revert OnlyGovernanceTimelock(msg.sender);
+    }
+
+    uint256[43] private __gap;
 }

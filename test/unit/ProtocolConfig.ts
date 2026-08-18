@@ -166,12 +166,10 @@ describe("ProtocolConfig", function () {
 
     it("rejects config changes from ADMIN and outsiders", async function () {
       const { config, admin, outsider } = await networkHelpers.loadFixture(deployFixture);
-      const defaultAdminRole = await config.DEFAULT_ADMIN_ROLE();
-
       for (const caller of [admin, outsider]) {
         await expect(config.connect(caller).setFeeBps(100))
-          .to.be.revertedWithCustomError(config, "AccessControlUnauthorizedAccount")
-          .withArgs(caller.address, defaultAdminRole);
+          .to.be.revertedWithCustomError(config, "OnlyGovernanceTimelock")
+          .withArgs(caller.address);
       }
     });
   });
