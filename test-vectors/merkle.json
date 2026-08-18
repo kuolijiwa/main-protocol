@@ -1,0 +1,20 @@
+{
+  "encoding": "keccak256(abi.encode(address,uint256))",
+  "pairing": "sorted-keccak256",
+  "totalWeight": "100",
+  "root": "0xca4b0a2ef9e789f7bc1e695db27f6e7d8f90bde27f19949888b50d800f589b8e",
+  "entries": [
+    {
+      "address": "0x1111111111111111111111111111111111111111",
+      "weight": "40",
+      "leaf": "0x61626e5c56cef7878fc1fbbf1163f5852e839dee8ea4d1b28dd89b1fd6b90f6c",
+      "proof": ["0x39844527b7b12cc7ecac563c58722503c62aab854482532c4b0f030951f7cfcf"]
+    },
+    {
+      "address": "0x2222222222222222222222222222222222222222",
+      "weight": "60",
+      "leaf": "0x39844527b7b12cc7ecac563c58722503c62aab854482532c4b0f030951f7cfcf",
+      "proof": ["0x61626e5c56cef7878fc1fbbf1163f5852e839dee8ea4d1b28dd89b1fd6b90f6c"]
+    }
+  ]
+}

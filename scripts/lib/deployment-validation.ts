@@ -3,6 +3,13 @@ import type { NetworkConnection } from "hardhat/types/network";
 
 export type Environment = Record<string, string | undefined>;
 
+export const PERSISTENT_NETWORK_CHAIN_IDS = {
+  baseSepolia: 84_532n,
+  base: 8_453n,
+  arbitrum: 42_161n,
+  optimism: 10n,
+} as const;
+
 export function requiredAddress(env: Environment, name: string): string {
   const value = env[name];
   if (value === undefined || !isAddress(value) || value === ZeroAddress) {
@@ -57,6 +64,36 @@ export function isSimulatedNetwork(connection: NetworkConnection): boolean {
   return connection.networkConfig.type === "edr-simulated";
 }
 
+export function validateNetworkIdentity(
+  simulated: boolean,
+  networkName: string,
+  chainId: bigint,
+  env: Environment,
+): void {
+  const expectedChainId = requiredInteger(env, "EXPECTED_CHAIN_ID", 1n);
+  check(
+    chainId === expectedChainId,
+    `chain ID mismatch: expected ${expectedChainId}, got ${chainId}`,
+  );
+
+  if (simulated) return;
+
+  const canonicalChainId: bigint | undefined =
+    PERSISTENT_NETWORK_CHAIN_IDS[networkName as keyof typeof PERSISTENT_NETWORK_CHAIN_IDS];
+  check(
+    canonicalChainId !== undefined,
+    "persistent deployment must use a reviewed Base Sepolia, Base, Arbitrum, or Optimism network config",
+  );
+  check(
+    chainId === canonicalChainId,
+    `${networkName} canonical chain ID mismatch: expected ${canonicalChainId}, got ${chainId}`,
+  );
+  check(
+    env.EIP1153_CONFIRMED === "true",
+    "EIP1153_CONFIRMED=true is required after confirming transient-storage support",
+  );
+}
+
 function sameAddressSet(actual: string[], expected: string[]): boolean {
   const normalize = (values: string[]) =>
     values.map((value) => getAddress(value).toLowerCase()).sort();
@@ -92,23 +129,8 @@ export async function validateExternalDeploymentInputs(
   if (allowEoaAdmin && getAddress(deployerAddress) !== getAddress(adminMultisig)) {
     throw new Error("ALLOW_EOA_ADMIN=true requires ADMIN_MULTISIG to equal the local deployer");
   }
-  if (!isSimulatedNetwork(connection)) {
-    check(
-      ["baseSepolia", "base", "arbitrum", "optimism"].includes(connection.networkName),
-      "persistent deployment must use a reviewed Base Sepolia, Base, Arbitrum, or Optimism network config",
-    );
-    check(
-      env.EIP1153_CONFIRMED === "true",
-      "EIP1153_CONFIRMED=true is required after confirming transient-storage support",
-    );
-  }
-
   const chainId = (await ethers.provider.getNetwork()).chainId;
-  const expectedChainId = requiredInteger(env, "EXPECTED_CHAIN_ID", 1n);
-  check(
-    chainId === expectedChainId,
-    `chain ID mismatch: expected ${expectedChainId}, got ${chainId}`,
-  );
+  validateNetworkIdentity(isSimulatedNetwork(connection), connection.networkName, chainId, env);
 
   const paymentCode = await ethers.provider.getCode(paymentToken);
   check(paymentCode !== "0x", "PAYMENT_TOKEN has no deployed code");

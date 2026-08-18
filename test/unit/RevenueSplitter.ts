@@ -336,6 +336,13 @@ describe("RevenueSplitter", function () {
         .connect(accrued.labeler)
         .claim(accrued.datasetId, LABELER_WEIGHT, accrued.labelerProof),
     ).to.be.revertedWithCustomError(accrued.splitter, "ProtocolPaused");
+    await expect(
+      accrued.marketplace.accrueRevenue(
+        await accrued.splitter.getAddress(),
+        accrued.datasetId,
+        1_000,
+      ),
+    ).to.be.revertedWithCustomError(accrued.splitter, "ProtocolPaused");
   });
 
   it("withdraws only recorded fees to the current treasury, even while paused", async function () {

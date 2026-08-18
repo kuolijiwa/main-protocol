@@ -13,15 +13,15 @@
 | --- | --- | ---: |
 | `ContributorRegistry` | Implemented and passing | 10 |
 | `ProtocolConfig` | Implemented and passing | 11 |
-| `DatasetRegistry` | Implemented and passing | 21 |
+| `DatasetRegistry` | Implemented and passing | 23 |
 | `EntitlementNFT` | Implemented and passing | 12 |
 | `RevenueSplitter` | Implemented, UUPS-tested, and passing | 16 |
-| `Marketplace` | Implemented, UUPS/integration-tested, and passing | 17 |
+| `Marketplace` | Implemented, UUPS/integration-tested, and passing | 18 |
 | `ProtocolTimelock` | Implemented, delay/role/execution-tested, and passing | 10 |
-| Artifact/deployment/deferred-scope assertions | Passing | 4 |
-| **Total** | **Full regression passing** | **101** |
+| Artifact/deployment/network/Merkle/deferred-scope assertions | Passing | 11 |
+| **Total** | **Full regression passing** | **111** |
 
-The deployment and post-deployment verification scripts share the same importable, integration-tested implementation and are TypeScript-checked. Hardhat compilation, formatting, Solidity lint, coverage, gas reporting, and the 101-test regression suite pass. Slither 0.11.5 completes with no high-severity finding; reviewed non-high findings are recorded in `security/SLITHER_REVIEW.md`. Within the confirmed V1 decisions and explicitly deferred scope, the current source has no known mismatch with this development specification. A real persistent-network deployment, production multisig onboarding/wiring transactions, and an independent smart-contract audit remain release gates.
+The deployment and post-deployment verification scripts share the same importable, integration-tested implementation and are TypeScript-checked. Persistent-network identity and rejection branches are directly unit-tested without broadcasting a deployment. Hardhat compilation, formatting, Solidity lint, coverage, gas reporting, and the 111-test regression suite pass. Slither 0.11.5 completes with no high-severity finding; reviewed non-high findings are recorded in `security/SLITHER_REVIEW.md`. Within the confirmed V1 decisions and explicitly deferred scope, the current source has no known mismatch with this development specification. A real persistent-network deployment, production multisig onboarding/wiring transactions, and an independent smart-contract audit remain release gates.
 
 ## Confirmed V1 decisions
 
@@ -37,6 +37,7 @@ The following choices resolve the source document's open questions or implementa
 | Nurture raw-data weight | The Batch Pipeline determines Nurture's raw-data weight under a versioned governance policy, includes Nurture as a Merkle leaf, publishes the leaves, and locks the resulting root at registration. The Main Protocol contains no fixed raw-data-weight ratio. |
 | Challenge window | `ProtocolConfig` provides a configurable `challengeWindow`; V1 does not hard-code a duration. Listings may be created for public review during the window, but purchases and claims are blocked. Anyone may submit evidence off-chain; the ADMIN multisig records and resolves a timely challenge on-chain. An upheld challenge permanently invalidates that Dataset's weights and blocks its listing, purchase, and claim paths. The corrected allocation must be registered as a normal new Dataset. No revenue migration, refund, challenge bond, or on-chain adjudication contract is needed because sales cannot occur before the challenge window closes. |
 | Registration attribution | A CONTRIBUTOR registers for itself. An OPERATOR registers only for the single allowlisted contributor assigned to it in `ContributorRegistry`; `RegisterParams` is not changed to add a contributor argument. |
+| Initial contributor membership | At deployment completion, `NURTURE_CONTRIBUTOR` must be the sole `CONTRIBUTOR_ROLE` member. `ContributorRegistry` uses enumerable access control so post-deployment verification checks the exact role-member count and member address, rather than merely checking that Nurture is included. The ADMIN multisig may expand the allowlist later as the source permits. |
 | Registration validation | Hash/root must be nonzero, sample/payload URIs non-empty, `totalWeight > 0`, at least one sale kind enabled, and `policy.licensesTransferable == false`. Leaf uniqueness and exact weight sum are pipeline/public-audit invariants because leaves are off-chain. |
 | Dataset IDs and unknown records | Dataset IDs are sequential and start at `1`; `0` is invalid. `getDataset` and all state-changing calls revert for an unknown ID, while `priceOf`, `claimable`, and `hasAccess` return `0`, `0`, and `false`; `getListing` returns the normalized inactive record `Listing(datasetId, kind, 0, false)`. |
 | Dataset lifecycle | Registration starts at `Draft`; the first listing changes it to `Listed`; removing the last listing changes it to `Delisted`; Exclusive purchase is terminal `ExclusivelySold`; an upheld challenge sets `Delisted` plus a permanent weight-invalidated flag. |
@@ -56,7 +57,7 @@ The following choices resolve the source document's open questions or implementa
 | Governance delay and authority lock | Production config changes and UUPS upgrades use the non-upgradeable `ProtocolTimelock`, an OpenZeppelin `TimelockController` with a fixed 48-hour minimum delay. Governance may increase the delay but `updateDelay` cannot reduce it below 48 hours. The operational multisig is proposer, executor, and canceller; the Timelock is permanently self-administered and is the core contracts' sole, fixed `DEFAULT_ADMIN_ROLE` holder. Neither the Timelock nor a core contract can grant that role to another address or revoke/renounce it from the Timelock. Configuration setters and UUPS authorization compare the caller directly with the stored Timelock address, so transferring a role cannot create a delay bypass. Emergency pause and challenge operations remain immediate multisig actions through `ADMIN_ROLE`. |
 | Upgradeability | Only `Marketplace` and `RevenueSplitter` use UUPS proxies. `ContributorRegistry`, `DatasetRegistry`, `EntitlementNFT`, `ProtocolConfig`, and the governance-infrastructure `ProtocolTimelock` are non-upgradeable V1 contracts; mutable configuration and role management occur through their documented state and roles. |
 | Production dependency pinning | Persistent deployments pin `EXPECTED_CHAIN_ID`, the payment token's runtime code hash and decimals, and a Safe-compatible operational multisig's runtime code hash, exact owner set, and threshold. Deployment and verification both probe the required read interfaces. These checks prove the reviewed identities/configuration, while the operator remains responsible for selecting a reviewed exact-transfer, non-rebasing stablecoin implementation. |
-| Deployment-network prerequisite | Test deployment uses the named `baseSepolia` Hardhat network; production deployments use `base`, `arbitrum`, or `optimism`. Every persistent deployment requires the operator to set `EIP1153_CONFIRMED=true` only after confirming Cancun transient-storage support on the selected chain. `EXPECTED_CHAIN_ID` prevents an RPC/network-name mismatch. |
+| Deployment-network prerequisite | Test deployment uses the named `baseSepolia` Hardhat network with canonical chain ID `84532`; production deployments use `base` (`8453`), `arbitrum` (`42161`), or `optimism` (`10`). Every persistent deployment requires the operator to set `EIP1153_CONFIRMED=true` only after confirming Cancun transient-storage support on the selected chain. Deployment and verification require both `EXPECTED_CHAIN_ID` and the selected Hardhat network name to match the hard-coded canonical mapping, preventing an RPC/network-name mismatch even if an operator edits both the RPC and environment expectation together. |
 
 ## Scope
 
@@ -604,11 +605,11 @@ The first four events are source-defined Main Protocol events. All later events 
 ## Security, deployment, and governance requirements
 
 - Use checks-effects-interactions, pull payments, OpenZeppelin `ReentrancyGuardTransient.nonReentrant`, and `SafeERC20` for purchase and claim paths. The Cancun EVM target and EIP-1153 transient-storage support are deployment prerequisites.
-- Apply the `ContributorRegistry` allowlist during the Nurture-only clean start.
+- Apply the enumerable `ContributorRegistry` allowlist during the Nurture-only clean start; deployment verification requires exactly one initial `CONTRIBUTOR_ROLE` member and requires that member to equal `NURTURE_CONTRIBUTOR`.
 - Anchor `weightsRoot` and publish leaves. The security model calls for an optimistic challenge window before a Dataset's first payout, allowing recomputation and dispute; the operator is expected to be staked/slashed.
 - Keep operator keys in an HSM or multisig. The longer-term roadmap is decentralizing the pipeline through an EigenLayer AVS.
 - Use a deployment-fixed nonzero stablecoin address (USDC is the example), configurable `feeBps`, and configurable nonzero treasury in `ProtocolConfig`; require `feeBps <= 10_000` and `challengeWindow > 0`.
-- Before deploying or verifying, require an exact chain-ID match; pin and verify the payment token runtime code hash and decimals; probe `totalSupply`, `balanceOf`, `allowance`, and `decimals`; and verify the reviewed Safe-compatible ADMIN multisig runtime code hash, exact owner set, and threshold. Code/interface checks do not replace external review of the selected stablecoin's exact-transfer and upgrade behavior.
+- Before deploying or verifying, require an exact `EXPECTED_CHAIN_ID` match and, on persistent networks, the canonical named-network mapping (`baseSepolia=84532`, `base=8453`, `arbitrum=42161`, `optimism=10`); pin and verify the payment token runtime code hash and decimals; probe `totalSupply`, `balanceOf`, `allowance`, and `decimals`; and verify the reviewed Safe-compatible ADMIN multisig runtime code hash, exact owner set, and threshold. Code/interface checks do not replace external review of the selected stablecoin's exact-transfer and upgrade behavior.
 - Production configuration changes and UUPS upgrades use a 48-hour governance timelock. A `feeBps` change affects only future purchases. A treasury-address change affects every later `withdrawTreasury`, including fees already accrued but not yet withdrawn. A `challengeWindow` change affects only Datasets registered after that change because each Dataset snapshots its deadline at registration.
 - Pause blocks `registerDataset`, new listings/relisting, `buyCopy`, `buyExclusive`, and `claim`. Read methods, `claimable`, contributor `delist`, challenge recording/resolution, `withdrawTreasury`, and ADMIN pause/unpause remain available so the protocol can reduce risk and resolve incidents while paused.
 - `Marketplace` and `RevenueSplitter` use UUPS proxies; `_authorizeUpgrade` accepts only the fixed stored governance-Timelock address. The Timelock remains its own sole `DEFAULT_ADMIN_ROLE` holder, and all six governed core contracts permanently bind that role to the same Timelock. All seven contracts reject attempts to grant the role elsewhere or revoke/renounce it from the Timelock.
@@ -669,6 +670,9 @@ Required project tooling:
 | Revenue | Multiple sales and staggered claims; valid/invalid proofs; wrong weight/address; double-claim; late claim; `Math.mulDiv` large values; rounding dust; treasury isolation/withdrawal; `claimable` is non-authoritative without proof. |
 | Pause/config | Exact paused/unpaused operation matrix; non-timelock config rejection; immediate ADMIN pause; fee/timestamp boundary values; treasury change semantics; challenge-window changes affect only new Datasets. |
 | Dependency wiring | Zero-address rejection; ADMIN-only setup; operation rejection before wiring; successful Marketplace proxy wiring; second-call rejection on all three dependent contracts. Shared deployment/verification logic must execute in an integration test, including multisig transaction emission/execution and the local-EOA exception. |
+| Persistent deployment validation | Directly execute the persistent-network validation branch for every supported canonical network; reject canonical-chain mismatch, unreviewed names, and missing EIP-1153 confirmation. Reject payment-token code-hash/decimals mismatches and Safe code-hash/owner-set/threshold mismatches. A real persistent-network broadcast remains a separate release gate. |
+| Initial contributor identity | Post-deployment verification must fail unless `CONTRIBUTOR_ROLE` has exactly one member and that member is `NURTURE_CONTRIBUTOR`; it must also reject a distinct Pipeline operator that was additionally granted Contributor membership. |
+| Cross-system Merkle compatibility | A fixed JSON vector must reproduce `keccak256(abi.encode(address,uint256))`, sorted-pair hashing, the documented total weight, root, leaves, and proofs off-chain, and every proof must pass an on-chain OpenZeppelin `MerkleProof` harness. |
 | Upgradeability and governance isolation | Only the fixed Timelock address can authorize Marketplace and RevenueSplitter upgrades; 48-hour production minimum delay; storage-layout upgrade check; role-transfer/revoke/renounce bypass rejection across the Timelock and all six governed contracts; all non-upgradeable contracts reject proxy-style initialization assumptions. |
 | Deferred scope | ABI and deployment assertions confirm no `AuctionHouse`, `IAuctionHouse`, `listExclusiveAuction`, `bid`, or `settle` exists in V1 artifacts. |
 
@@ -699,15 +703,18 @@ contracts/
     MockERC20.sol
     MockMarketplace.sol
     MockSafe.sol
+    MerkleProofHarness.sol
     NonERC1155Receiver.sol
     ReentrantERC20.sol
     RevenueSplitterV2.sol
 test/
   acceptance/
     ArtifactScope.ts
+    MerkleVector.ts
   unit/
     ContributorRegistry.ts
     DatasetRegistry.ts
+    DeploymentValidation.ts
     EntitlementNFT.ts
     ProtocolConfig.ts
     ProtocolTimelock.ts
@@ -727,13 +734,15 @@ scripts/
   ci.yml
 security/
   SLITHER_REVIEW.md
+test-vectors/
+  merkle.json
 hardhat.config.ts
 .env.example
 ```
 
 Deployment order is fixed:
 
-1. Select the named `baseSepolia` test network or a reviewed `base`, `arbitrum`, or `optimism` production network; pin `EXPECTED_CHAIN_ID`; confirm EIP-1153 support; validate the reviewed payment token's runtime code hash, decimals, and ERC-20 read interface; and validate the Safe-compatible production multisig's runtime code hash, exact owners, and threshold.
+1. Select `baseSepolia` (`84532`) for the test network or a reviewed `base` (`8453`), `arbitrum` (`42161`), or `optimism` (`10`) production network; pin the same value in `EXPECTED_CHAIN_ID`; confirm EIP-1153 support; validate the reviewed payment token's runtime code hash, decimals, and ERC-20 read interface; and validate the Safe-compatible production multisig's runtime code hash, exact owners, and threshold. Deployment rejects any named-network/canonical-chain mismatch.
 2. Deploy `ProtocolTimelock` with the production multisig as proposer, executor, and canceller; verify its initial 48-hour delay and permanently locked self-admin role.
 3. Deploy `ContributorRegistry` and `ProtocolConfig` with `ProtocolTimelock` as `DEFAULT_ADMIN_ROLE` and the production multisig as operational `ADMIN_ROLE`.
 4. Through the operational multisig, grant `CONTRIBUTOR_ROLE` to `NURTURE_CONTRIBUTOR`, grant `OPERATOR_ROLE` to the distinct `PIPELINE_OPERATOR`, and call `setOperatorContributor(PIPELINE_OPERATOR, NURTURE_CONTRIBUTOR)`. The Pipeline operator must not also hold `CONTRIBUTOR_ROLE`, because direct-contributor attribution takes precedence.
@@ -741,6 +750,6 @@ Deployment order is fixed:
 6. Deploy and initialize the `RevenueSplitter` UUPS proxy without a Marketplace address.
 7. Deploy and initialize the `Marketplace` UUPS proxy with the registry, NFT, splitter, and config addresses.
 8. Through the operational multisig, call `setMarketplaceOnce` on `DatasetRegistry`, `EntitlementNFT`, and `RevenueSplitter` with the Marketplace proxy address. `scripts/deploy.ts` emits the ordered onboarding and wiring calls together as `adminTransactions` when the deployer is not the multisig.
-9. Run `scripts/verify-deployment.ts` with the emitted deployer and implementation addresses supplied as `DEPLOYER_ADDRESS`, `MARKETPLACE_IMPLEMENTATION`, and `REVENUE_SPLITTER_IMPLEMENTATION`. Verification checks the external dependency pins, Timelock roles/minimum delay/sole self-admin state, every core contract's fixed Timelock, Nurture/Pipeline onboarding and assignment, every core role, dependency/wiring address, exact proxy implementation address, immutable payment token, fee, treasury, gateway signer, challenge window, and pause state. It accepts a governance-increased delay but fails below 48 hours or on any implementation-address change. It also fails if the operational multisig holds any `DEFAULT_ADMIN_ROLE`, or if the deployment address retains any Timelock, `DEFAULT_ADMIN_ROLE`, `ADMIN_ROLE`, `OPERATOR_ROLE`, or `CONTRIBUTOR_ROLE` production privilege.
+9. Run `scripts/verify-deployment.ts` with the emitted deployer and implementation addresses supplied as `DEPLOYER_ADDRESS`, `MARKETPLACE_IMPLEMENTATION`, and `REVENUE_SPLITTER_IMPLEMENTATION`. Verification checks the external dependency pins, canonical network identity, Timelock roles/minimum delay/sole self-admin state, every core contract's fixed Timelock, exact one-member initial Contributor allowlist containing only Nurture, Nurture/Pipeline onboarding and assignment, every core role, dependency/wiring address, exact proxy implementation address, immutable payment token, fee, treasury, gateway signer, challenge window, and pause state. It accepts a governance-increased delay but fails below 48 hours or on any implementation-address change. It also fails if the operational multisig holds any `DEFAULT_ADMIN_ROLE`, or if the deployment address retains any Timelock, `DEFAULT_ADMIN_ROLE`, `ADMIN_ROLE`, `OPERATOR_ROLE`, or `CONTRIBUTOR_ROLE` production privilege.
 
 Deployment and verification consume the variables documented in `.env.example`. `ADMIN_MULTISIG_OWNERS` is a comma-separated exact owner set, and `ADMIN_MULTISIG_THRESHOLD` must be at least `2` and no greater than that set's size. `NURTURE_CONTRIBUTOR` and `PIPELINE_OPERATOR` must be nonzero and distinct. `ALLOW_EOA_ADMIN=true` is supported by both deployment and verification only on Hardhat's local simulated network, requires `ADMIN_MULTISIG == DEPLOYER_ADDRESS`, and is forbidden on persistent networks.

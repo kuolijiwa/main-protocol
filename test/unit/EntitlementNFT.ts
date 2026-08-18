@@ -150,7 +150,7 @@ describe("EntitlementNFT", function () {
   });
 
   it("restricts minting to Marketplace and the required Dataset state", async function () {
-    const { nft, marketplace, buyer, outsider, datasetId } =
+    const { nft, marketplace, datasets, buyer, outsider, datasetId } =
       await networkHelpers.loadFixture(deployFixture);
 
     await expect(nft.connect(outsider).mint(buyer.address, datasetId, 0))
@@ -159,6 +159,13 @@ describe("EntitlementNFT", function () {
     await expect(
       marketplace.mintEntitlement(await nft.getAddress(), buyer.address, datasetId, 0),
     ).to.be.revertedWithCustomError(nft, "InvalidMintState");
+    await marketplace.markListed(datasetId);
+    await expect(
+      marketplace.mintEntitlement(await nft.getAddress(), ZeroAddress, datasetId, 0),
+    ).to.be.revertedWithCustomError(nft, "ZeroAddress");
+    await expect(marketplace.mintEntitlement(await nft.getAddress(), buyer.address, datasetId, 1))
+      .to.be.revertedWithCustomError(nft, "InvalidMintState")
+      .withArgs(datasetId, (await datasets.getDataset(datasetId)).status, 1);
   });
 
   it("mints one Copy license and rejects a duplicate wallet purchase", async function () {

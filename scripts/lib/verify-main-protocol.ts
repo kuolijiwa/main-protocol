@@ -148,16 +148,25 @@ export async function verifyMainProtocol(
       "ContributorRegistry leaves CONTRIBUTOR_ROLE on deployer",
     );
   }
+  const contributorRole = await contributors.CONTRIBUTOR_ROLE();
   check(
-    await contributors.hasRole(await contributors.CONTRIBUTOR_ROLE(), nurtureContributor),
+    await contributors.hasRole(contributorRole, nurtureContributor),
     "NURTURE_CONTRIBUTOR lacks CONTRIBUTOR_ROLE",
+  );
+  check(
+    (await contributors.getRoleMemberCount(contributorRole)) === 1n,
+    "CONTRIBUTOR_ROLE must have exactly one initial member",
+  );
+  check(
+    (await contributors.getRoleMember(contributorRole, 0n)) === nurtureContributor,
+    "NURTURE_CONTRIBUTOR must be the sole initial CONTRIBUTOR_ROLE member",
   );
   check(
     await contributors.hasRole(await contributors.OPERATOR_ROLE(), pipelineOperator),
     "PIPELINE_OPERATOR lacks OPERATOR_ROLE",
   );
   check(
-    !(await contributors.hasRole(await contributors.CONTRIBUTOR_ROLE(), pipelineOperator)),
+    !(await contributors.hasRole(contributorRole, pipelineOperator)),
     "PIPELINE_OPERATOR must not hold CONTRIBUTOR_ROLE",
   );
   check(

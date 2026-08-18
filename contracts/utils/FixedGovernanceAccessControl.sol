@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
+import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
 
 /// @title FixedGovernanceAccessControl
 /// @notice Permanently binds DEFAULT_ADMIN_ROLE to one governance timelock.
-abstract contract FixedGovernanceAccessControl is AccessControl {
+abstract contract FixedGovernanceAccessControl is AccessControlEnumerable {
     address public immutable governanceTimelock;
 
     error ZeroAddress();
@@ -24,7 +26,10 @@ abstract contract FixedGovernanceAccessControl is AccessControl {
     }
 
     /// @dev DEFAULT_ADMIN_ROLE cannot be granted to any account other than the fixed timelock.
-    function grantRole(bytes32 role, address account) public virtual override {
+    function grantRole(
+        bytes32 role,
+        address account
+    ) public virtual override(AccessControl, IAccessControl) {
         if (role == DEFAULT_ADMIN_ROLE && account != governanceTimelock) {
             revert GovernanceRoleLocked(account);
         }
@@ -32,7 +37,10 @@ abstract contract FixedGovernanceAccessControl is AccessControl {
     }
 
     /// @dev The fixed timelock's DEFAULT_ADMIN_ROLE cannot be revoked.
-    function revokeRole(bytes32 role, address account) public virtual override {
+    function revokeRole(
+        bytes32 role,
+        address account
+    ) public virtual override(AccessControl, IAccessControl) {
         if (role == DEFAULT_ADMIN_ROLE && account == governanceTimelock) {
             revert GovernanceRoleLocked(account);
         }
@@ -40,7 +48,10 @@ abstract contract FixedGovernanceAccessControl is AccessControl {
     }
 
     /// @dev The fixed timelock cannot renounce DEFAULT_ADMIN_ROLE.
-    function renounceRole(bytes32 role, address account) public virtual override {
+    function renounceRole(
+        bytes32 role,
+        address account
+    ) public virtual override(AccessControl, IAccessControl) {
         if (role == DEFAULT_ADMIN_ROLE && account == governanceTimelock) {
             revert GovernanceRoleLocked(account);
         }

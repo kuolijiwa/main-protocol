@@ -261,6 +261,14 @@ export async function deployMainProtocol(
       "NURTURE_CONTRIBUTOR lacks CONTRIBUTOR_ROLE",
     );
     check(
+      (await contributorRegistry.getRoleMemberCount(contributorRole)) === 1n,
+      "CONTRIBUTOR_ROLE must have exactly one initial member",
+    );
+    check(
+      (await contributorRegistry.getRoleMember(contributorRole, 0n)) === nurtureContributor,
+      "NURTURE_CONTRIBUTOR must be the sole initial CONTRIBUTOR_ROLE member",
+    );
+    check(
       await contributorRegistry.hasRole(operatorRole, pipelineOperator),
       "PIPELINE_OPERATOR lacks OPERATOR_ROLE",
     );

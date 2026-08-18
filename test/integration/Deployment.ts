@@ -28,7 +28,8 @@ async function executeAdminTransactions(
 
 describe("Production deployment topology", function () {
   it("executes the shared deploy/verify logic for multisig and local-EOA modes", async function () {
-    const [deployer, secondOwner, treasury, gateway, nurture, pipeline] = await ethers.getSigners();
+    const [deployer, secondOwner, treasury, gateway, nurture, pipeline, outsider] =
+      await ethers.getSigners();
     const token = await ethers.deployContract("MockERC20");
     const safe = await ethers.deployContract("MockSafe", [
       [deployer.address, secondOwner.address],
@@ -87,6 +88,30 @@ describe("Production deployment topology", function () {
     expect(implementationMismatch).to.be.instanceOf(Error);
     expect((implementationMismatch as Error).message).to.contain(
       "Marketplace implementation address mismatch",
+    );
+
+    const contributorRegistry = await ethers.getContractAt(
+      "ContributorRegistry",
+      outputAddress(deployment, "contributorRegistry"),
+    );
+    await (
+      await safe.connect(deployer).getFunction("execute")(
+        await contributorRegistry.getAddress(),
+        contributorRegistry.interface.encodeFunctionData("grantRole", [
+          await contributorRegistry.CONTRIBUTOR_ROLE(),
+          outsider.address,
+        ]),
+      )
+    ).wait();
+    let extraInitialContributor: unknown;
+    try {
+      await verifyMainProtocol(connection, verificationEnvironment);
+    } catch (error) {
+      extraInitialContributor = error;
+    }
+    expect(extraInitialContributor).to.be.instanceOf(Error);
+    expect((extraInitialContributor as Error).message).to.contain(
+      "CONTRIBUTOR_ROLE must have exactly one initial member",
     );
 
     const localEoaEnvironment: Environment = {

@@ -371,6 +371,36 @@ describe("DatasetRegistry", function () {
         .withArgs(1, 1);
     });
 
+    it("rejects direct sales disabled by the registered license policy", async function () {
+      const deployment = await networkHelpers.loadFixture(deployFixture);
+      const copyDisabled = validParams();
+      copyDisabled.contentHash = ethers.id("copy-disabled");
+      copyDisabled.policy.allowCopy = false;
+      await deployment.datasetRegistry
+        .connect(deployment.contributor)
+        .registerDataset(copyDisabled);
+
+      const exclusiveDisabled = validParams();
+      exclusiveDisabled.contentHash = ethers.id("exclusive-disabled");
+      exclusiveDisabled.policy.allowExclusive = false;
+      await deployment.datasetRegistry
+        .connect(deployment.contributor)
+        .registerDataset(exclusiveDisabled);
+
+      await deployment.marketplace.markListed(1);
+      await deployment.marketplace.markListed(2);
+      await networkHelpers.time.setNextBlockTimestamp(
+        await deployment.datasetRegistry.challengeWindowEndsAt(2),
+      );
+
+      await expect(deployment.marketplace.recordCopySale(1))
+        .to.be.revertedWithCustomError(deployment.datasetRegistry, "CopySaleNotAllowed")
+        .withArgs(1);
+      await expect(deployment.marketplace.recordExclusiveSale(2))
+        .to.be.revertedWithCustomError(deployment.datasetRegistry, "ExclusiveSaleNotAllowed")
+        .withArgs(2);
+    });
+
     it("makes an Exclusive sale terminal", async function () {
       const { datasetRegistry, marketplace, datasetId } =
         await networkHelpers.loadFixture(registeredFixture);
@@ -392,6 +422,23 @@ describe("DatasetRegistry", function () {
   });
 
   describe("weight challenge state machine", function () {
+    it("rejects duplicate recording and resolution outside Pending", async function () {
+      const { datasetRegistry, admin, datasetId } =
+        await networkHelpers.loadFixture(registeredFixture);
+
+      await expect(datasetRegistry.connect(admin).resolveChallenge(datasetId, false))
+        .to.be.revertedWithCustomError(datasetRegistry, "InvalidChallengeTransition")
+        .withArgs(datasetId, 0);
+      await datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("first"));
+      await expect(datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("again")))
+        .to.be.revertedWithCustomError(datasetRegistry, "InvalidChallengeTransition")
+        .withArgs(datasetId, 1);
+      await datasetRegistry.connect(admin).resolveChallenge(datasetId, false);
+      await expect(datasetRegistry.connect(admin).resolveChallenge(datasetId, false))
+        .to.be.revertedWithCustomError(datasetRegistry, "InvalidChallengeTransition")
+        .withArgs(datasetId, 2);
+    });
+
     it("records nonzero evidence only from ADMIN before the deadline", async function () {
       const { datasetRegistry, admin, outsider, datasetId } =
         await networkHelpers.loadFixture(registeredFixture);

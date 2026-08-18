@@ -296,6 +296,13 @@ describe("Marketplace integration", function () {
     expect(await datasets.weightsInvalidated(datasetId)).to.equal(true);
   });
 
+  it("allows only DatasetRegistry to invalidate listings", async function () {
+    const { market, buyer, datasetId } = await networkHelpers.loadFixture(deployFixture);
+    await expect(market.connect(buyer).invalidateListings(datasetId))
+      .to.be.revertedWithCustomError(market, "OnlyDatasetRegistry")
+      .withArgs(buyer.address);
+  });
+
   it("allows only governance to authorize a Marketplace UUPS upgrade", async function () {
     const { market, governance, buyer } = await networkHelpers.loadFixture(deployFixture);
     const proxy = await market.getAddress();

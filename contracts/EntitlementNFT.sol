@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
+import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions/AccessControlEnumerable.sol";
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {FixedGovernanceAccessControl} from "./utils/FixedGovernanceAccessControl.sol";
 import {
@@ -112,7 +112,7 @@ contract EntitlementNFT is ERC1155, FixedGovernanceAccessControl, IEntitlementNF
 
     function supportsInterface(
         bytes4 interfaceId
-    ) public view override(ERC1155, AccessControl) returns (bool) {
+    ) public view override(ERC1155, AccessControlEnumerable) returns (bool) {
         return super.supportsInterface(interfaceId);
     }
 
