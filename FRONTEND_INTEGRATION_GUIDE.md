@@ -13,36 +13,91 @@
 - Dataset 登记、固定价上架、购买、授权、收入领取和 Challenge 的完整流程；
 - 枚举、结构体、金额、时间戳和 Merkle Manifest 的编码规则；
 - 事件索引、缓存、链重组、交易状态和自定义错误处理；
-- 普通用户、Contributor、Operator、Admin Safe 和 Timelock 的权限边界；
+- 普通用户、Contributor、Operator、ADMIN authority 和 Timelock 的权限边界；
 - 前端单元测试、集成测试、端到端验收和上线门槛。
 
 规则优先级如下：
 
-1. 已部署目标网络的部署记录、链上字节码和对应 ABI；
-2. 当前仓库合约源码与 `artifacts/` 编译产物；
-3. `MAIN_PROTOCOL_DEVELOPMENT_SPEC.md` 中已确认的 V1 决策；
-4. `protocol_technical_design.md` 原始设计。
+1. 已部署目标网络的 chainId、链上字节码、确认区块 getter/事件和对应 ABI；
+2. 经链上复核且摘要固定的部署记录；
+3. 当前仓库合约源码与 `artifacts/` 编译产物；
+4. `MAIN_PROTOCOL_DEVELOPMENT_SPEC.md` 中已确认的 V1 决策；
+5. `protocol_technical_design.md` 原始设计。
 
 如果前端发现这几层信息不一致，不得自行猜测，应停止该网络的写操作并由协议团队确认。
 
-## 2. 当前部署状态：接入前必须阅读
+## 2. 当前 Base Sepolia 部署：接入前必须阅读
 
-部署脚本现在会生成版本化部署记录，但当前 `deployments/` 目录仍只有格式说明，没有可用于当前源码的网络部署 JSON，因此本文档不提供可直接用于生产或测试网写入的合约地址。
+当前源码已经重新部署到 [Base Sepolia Testnet](https://chainlist.org/chain/84532)，并于 2026-08-18 通过仓库的完整链上部署验证。该部署可用于前端测试网接入，但不是生产发布。
 
-历史 Base Sepolia 部署早于当前 `DatasetRegistered` 事件恢复，`DatasetRegistry` 又是不可升级合约，所以历史地址不是当前源码版本的有效部署。前端不得把 `.env.base-sepolia-live.example` 中可能存在的历史地址当成当前地址。
+### 2.1 网络与部署记录
 
-正式接入必须由协议团队提供一次新的完整部署，并交付：
+| 项目              | 当前值                                                                  |
+| ----------------- | ----------------------------------------------------------------------- |
+| Network           | Base Sepolia Testnet                                                    |
+| Chain ID          | `84532`                                                                 |
+| 公共 RPC          | `https://base-sepolia-rpc.publicnode.com`                               |
+| Explorer          | `https://sepolia.basescan.org`                                          |
+| Deployment schema | `main-protocol-deployment-v1`                                           |
+| Deployment ID     | `baseSepolia-20260818T104144000Z-45640708`                              |
+| 历史记录          | `deployments/baseSepolia/baseSepolia-20260818T104144000Z-45640708.json` |
+| Latest 记录       | `deployments/baseSepolia/latest.json`                                   |
+| 记录区块          | `45640708`                                                              |
+| 记录区块哈希      | `0x7b0136d4849bb9b940373a33edad8a60e8061c8e34a0db942929e5fdcf82ae37`    |
+| Indexer 起始区块  | `45640640`                                                              |
+| 部署记录 SHA-256  | `3d62705eceb13358ef009931760262eeac7406cef8645ae0da90e84f4c4b38f7`      |
 
-- `chainId`；
-- 七个核心合约地址；
-- Marketplace 和 RevenueSplitter 的代理地址及实现地址；
-- 部署记录区块号和经过确认的 Indexer 起始区块；
-- 当前源码 commit、ABI bundle 和合约字节码校验结果；
-- 支付 Token 地址、symbol、decimals；
-- Gateway、Manifest 和 Challenge API 的基础 URL；
-- 区块确认数和索引器起始区块。
+`indexerStartBlock=45640640` 是通过历史区块代码查询得到的最早核心合约创建区块。Indexer 应从该区块开始回放角色、wiring、配置、升级和业务事件。
 
-Base Sepolia 的链 ID 是 `84532`。项目计划使用的公共 RPC 示例为 `https://base-sepolia-rpc.publicnode.com`，但生产前端应配置至少一个备用 RPC，并对 RPC 做限流、健康检查和故障切换。
+### 2.2 当前合约地址
+
+| 合约/依赖                          | 地址                                                                                                                            |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| ProtocolTimelock                   | [`0xf72460a99d18D1fb37d7ea0f0029C3706a44439E`](https://sepolia.basescan.org/address/0xf72460a99d18D1fb37d7ea0f0029C3706a44439E) |
+| ContributorRegistry                | [`0xb75ec120de4A24f6691De82e67967c4aEF7b25bE`](https://sepolia.basescan.org/address/0xb75ec120de4A24f6691De82e67967c4aEF7b25bE) |
+| ProtocolConfig                     | [`0x917428FaE51d94E5D2F6208f935a7636c2DD43f8`](https://sepolia.basescan.org/address/0x917428FaE51d94E5D2F6208f935a7636c2DD43f8) |
+| DatasetRegistry                    | [`0x205f4951190C14c1e314C9Fe38855e836c636869`](https://sepolia.basescan.org/address/0x205f4951190C14c1e314C9Fe38855e836c636869) |
+| EntitlementNFT                     | [`0x0857490D0238dd90a296EeE360b0335E43B8b3a2`](https://sepolia.basescan.org/address/0x0857490D0238dd90a296EeE360b0335E43B8b3a2) |
+| RevenueSplitter Proxy              | [`0xB5A4Ee97b24deAAC5c1516Cc3f87967000d839f1`](https://sepolia.basescan.org/address/0xB5A4Ee97b24deAAC5c1516Cc3f87967000d839f1) |
+| RevenueSplitter Implementation     | [`0x6893caaD4bCBd67b0D35EA75F2f3c8387C296C3e`](https://sepolia.basescan.org/address/0x6893caaD4bCBd67b0D35EA75F2f3c8387C296C3e) |
+| Marketplace Proxy                  | [`0xEc0bAd0a5D9C55f3b4a4db80b62296EDC2DA0761`](https://sepolia.basescan.org/address/0xEc0bAd0a5D9C55f3b4a4db80b62296EDC2DA0761) |
+| Marketplace Implementation         | [`0xA270139540e8100b75388E7414a8C906f3EeD1A2`](https://sepolia.basescan.org/address/0xA270139540e8100b75388E7414a8C906f3EeD1A2) |
+| Payment Token（Base Sepolia USDC） | [`0x036CbD53842c5426634e7929541eC2318f3dCF7e`](https://sepolia.basescan.org/address/0x036CbD53842c5426634e7929541eC2318f3dCF7e) |
+| ADMIN 测试账号                     | [`0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04`](https://sepolia.basescan.org/address/0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04) |
+| Treasury                           | [`0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04`](https://sepolia.basescan.org/address/0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04) |
+| Gateway signer                     | [`0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04`](https://sepolia.basescan.org/address/0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04) |
+| Initial Nurture Contributor        | [`0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04`](https://sepolia.basescan.org/address/0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04) |
+| Pipeline Operator                  | [`0x4F4a1e6dB43f9c09AaEF4D2C1C8CF079cB139E49`](https://sepolia.basescan.org/address/0x4F4a1e6dB43f9c09AaEF4D2C1C8CF079cB139E49) |
+
+业务调用必须使用 Marketplace/RevenueSplitter 的代理地址，不能调用实现地址。
+
+### 2.3 当前链上配置
+
+| 配置                      | 当前链上值            |
+| ------------------------- | --------------------- |
+| Payment Token             | USDC，6 decimals      |
+| Protocol fee              | `250 bps = 2.5%`      |
+| Challenge window          | `60` 秒               |
+| Protocol paused           | `false`               |
+| Timelock current delay    | `60` 秒               |
+| Timelock enforced minimum | `60` 秒               |
+| `nextDatasetId`           | `1`，尚未登记 Dataset |
+| onboarding/wiring         | 已完成并通过验证      |
+
+当前 `ADMIN_MULTISIG` 配置地址实际是 EOA 测试账号，并非 Safe 合约；Treasury、Gateway signer 和初始 Nurture Contributor 也暂时使用该测试地址。60 秒 Challenge window 和 60 秒 Timelock 都是为了 Base Sepolia 快速验收，不代表生产参数。
+
+### 2.4 部署记录已知差异
+
+部署 JSON 的 `configuration.CHALLENGE_WINDOW_SECONDS` 和 `deployment.challengeWindow` 记录为 `604800`，但 ProtocolConfig 部署交易的构造参数、当前链上 `challengeWindow()` 和链上事件历史共同证明实际初始值为 `60`，且部署后没有 `ChallengeWindowUpdated`。
+
+因此：
+
+- 当前测试网前端必须以链上 getter 的 `60` 秒为准；
+- 不得把部署 JSON 中的 `604800` 显示为当前 Challenge window；
+- 动态配置始终通过 getter 和确认后的配置事件读取；
+- 在部署记录生成问题修复并重新验证前，该 JSON 只能作为地址和代码哈希候选来源，不能作为所有配置字段的唯一真相。
+
+公共 RPC 可能限流或暂时不可用，测试前端应配置备用 Base Sepolia RPC、请求超时、重试和健康检查。生产部署仍需使用真实 Safe、至少 48 小时 Timelock、正式 Gateway/Treasury、独立审计和新的生产部署记录。
 
 ## 3. V1 功能范围
 
@@ -94,7 +149,7 @@ flowchart LR
   D --> PC["ProtocolConfig"]
   R --> D
   R --> PC
-  A["ADMIN_MULTISIG Safe"] --> CR
+  A["ADMIN_MULTISIG authority"] --> CR
   A --> D
   A --> PC
   A --> TL["ProtocolTimelock"]
@@ -126,6 +181,8 @@ flowchart LR
 ```ts
 export interface MainProtocolDeployment {
   deploymentId: string;
+  environment: "testnet" | "production";
+  testOnly: boolean;
   chainId: number;
   recordBlock: bigint;
   indexerStartBlock: bigint;
@@ -141,12 +198,19 @@ export interface MainProtocolDeployment {
     revenueSplitterImplementation: `0x${string}`;
     protocolTimelock: `0x${string}`;
     paymentToken: `0x${string}`;
+    adminAuthority: `0x${string}`;
+    treasury: `0x${string}`;
+    gatewaySigner: `0x${string}`;
+    nurtureContributor: `0x${string}`;
+    pipelineOperator: `0x${string}`;
   };
   gatewayBaseUrl: string;
   manifestGatewayBaseUrl?: string;
   challengeApiBaseUrl: string;
 }
 ```
+
+当前 Base Sepolia 地址常量可以直接从第 2.2 节或批准后的部署文件生成。配置必须标记 `environment: "testnet"`、`testOnly: true`，并使用 `recordBlock: 45640708n`、`indexerStartBlock: 45640640n`。不要把这些地址复制到 Base Mainnet 或其他 chainId 配置中。
 
 ### 5.1 部署记录的使用方式
 
@@ -171,6 +235,8 @@ deployments/<network>/latest.json
 `latest.json` 会被下一次部署覆盖，只适合部署对账和发现候选版本，不能让已发布前端在运行时无审核地自动跟随。部署记录不包含私钥或 RPC URL，但前端仍应只发布业务必需的公开字段。
 
 部署记录的 `blockNumber` 是记录写入时的链上高度，不保证等于七个合约中最早的部署区块。若 Indexer 要重放 wiring、角色和升级历史，协议团队必须另行给出并核验 `indexerStartBlock`；不能直接把记录区块误当成所有事件的最早高度。
+
+当前 Base Sepolia 记录存在第 2.4 节所述 Challenge window 字段差异。前端可以使用已核验的地址、实现地址和代码哈希，但动态配置必须通过链上 getter 获取；在记录修复前不能把整个 JSON 视为原子可信配置。
 
 ### 5.2 前端依赖与目录建议
 
@@ -404,9 +470,11 @@ Indexer 应记录 `transactionHash`、`blockNumber`、`blockHash`、`logIndex`�
 
 前端在展示登记表单前应读取角色和映射，但仍需处理交易执行前角色被撤销的情况。
 
-### 10.2 Admin Safe
+### 10.2 ADMIN authority
 
-`ADMIN_ROLE` 通常授予 Safe 合约地址，不是某个 Safe owner EOA。一个 owner 钱包直接调用受 `ADMIN_ROLE` 保护的函数会失败。Admin 控制台应生成 Safe Transaction，或接入 Safe SDK，由达到阈值的 owner 签名并通过 Safe 执行。
+生产部署的 `ADMIN_ROLE` 必须授予 Safe 合约地址，而不是某个 Safe owner EOA。一个 owner 钱包直接调用受 `ADMIN_ROLE` 保护的函数会失败；生产 Admin 控制台应生成 Safe Transaction，或接入 Safe SDK，由达到阈值的 owner 签名并通过 Safe 执行。
+
+当前 Base Sepolia 部署显式启用了测试例外，`ADMIN_MULTISIG` 实际是 EOA，可由该测试账号直接发起 ADMIN 和 Timelock 交易。前端必须按链上 `getCode(adminAddress)` 区分 EOA/合约模式，并在 EOA 模式显示“仅限测试、无多签保护”，不能强制走 Safe SDK。
 
 ## 11. Dataset 登记流程
 
@@ -765,8 +833,8 @@ Claim 条件：
 V1 是“公开链下提交、管理员链上记录与裁决”：
 
 - 任何人可通过公开 API 提交证据；
-- 只有持有 `ADMIN_ROLE` 的 Admin Safe 可调用 `recordChallenge`；
-- 只有 Admin Safe 可调用 `resolveChallenge`；
+- 只有持有 `ADMIN_ROLE` 的 ADMIN authority 可调用 `recordChallenge`；
+- 只有 ADMIN authority 可调用 `resolveChallenge`；
 - 合约不自动验证争议事实，也没有 bond、奖励或惩罚。
 
 ### 17.2 用户提交
@@ -835,12 +903,12 @@ resolveChallenge(uint256 datasetId, bool upheld)
 
 ### 19.1 权限分层
 
-- 当前部署拓扑只有一个 `ADMIN_MULTISIG` Safe：它直接持有运营 `ADMIN_ROLE`，负责 Contributor/Operator、Operator attribution、暂停/恢复、Challenge 和一次性 wiring；
+- 当前协议拓扑只有一个 `ADMIN_MULTISIG` authority：它直接持有运营 `ADMIN_ROLE`，负责 Contributor/Operator、Operator attribution、暂停/恢复、Challenge 和一次性 wiring；
 - 同一个 `ADMIN_MULTISIG` 也是 ProtocolTimelock 的唯一 proposer、executor 和 canceller，通过 Timelock 间接发起治理操作；
 - ProtocolTimelock 自身是永久唯一的 `DEFAULT_ADMIN_ROLE` 持有人，负责延迟执行手续费、Treasury、审计窗口、Gateway signer、UUPS 升级、token rescue 和治理角色变更；
 - 普通 EOA：购买、领取、触发 Treasury 提款；具备 Contributor 身份时可登记和管理自己的 Listing。
 
-“运营路径”和“治理路径”是权限路径的区分，不代表当前部署存在两个不同 Safe。前端必须从部署记录读取唯一 `adminMultisig`，不得自行配置第二个 Governance Safe。
+“运营路径”和“治理路径”是权限路径的区分，不代表存在两个不同管理地址。生产时该 authority 必须是 Safe；当前 Base Sepolia 快速验收部署中它是 EOA。前端必须从部署记录和链上角色读取唯一 `adminMultisig`，不得自行配置第二个 Governance Safe。
 
 ### 19.2 Timelock 流程
 
@@ -850,7 +918,7 @@ resolveChallenge(uint256 datasetId, bool upheld)
 2. 计算或指定 `predecessor`，无依赖时为零哈希；
 3. 生成唯一 `salt`；
 4. 调用 `hashOperation(target, value, data, predecessor, salt)`；
-5. `ADMIN_MULTISIG` Safe 调用 `schedule(..., delay)`；
+5. `ADMIN_MULTISIG` authority 调用 `schedule(..., delay)`；生产由 Safe 执行，当前 Base Sepolia 测试由 EOA 执行；
 6. 等待 `getTimestamp(operationId)` 到达且状态 Ready；
 7. 调用 `execute(...)`；
 8. 校验目标合约事件与新状态。
@@ -961,9 +1029,9 @@ Timelock 关键事件：`CallScheduled`、`CallExecuted`、`Cancelled`、`MinDel
 | `RevenueSplitter.claim`                                                    | Manifest leaf 对应钱包本人             |
 | `RevenueSplitter.withdrawTreasury`                                         | 任意地址可触发，款项只发送到 Treasury  |
 | `EntitlementNFT.safeTransferFrom`                                          | Exclusive 持有人或其 ERC-1155 operator |
-| `ContributorRegistry.setOperatorContributor`                               | Admin Safe                             |
-| `DatasetRegistry.recordChallenge/resolveChallenge`                         | Admin Safe                             |
-| `ProtocolConfig.pause/unpause`                                             | Admin Safe                             |
+| `ContributorRegistry.setOperatorContributor`                               | ADMIN authority                        |
+| `DatasetRegistry.recordChallenge/resolveChallenge`                         | ADMIN authority                        |
+| `ProtocolConfig.pause/unpause`                                             | ADMIN authority                        |
 | `ProtocolConfig.setFeeBps/setTreasury/setChallengeWindow/setGatewaySigner` | Timelock                               |
 | `Marketplace/RevenueSplitter.upgradeToAndCall`                             | Timelock                               |
 | `RevenueSplitter.rescueToken`                                              | Timelock                               |
@@ -1363,14 +1431,16 @@ idle
 - Listing 创建、下架、重新上架；
 - Dataset 销售、净收入和 Challenge 状态。
 
-### 29.4 Admin Safe 控制台
+### 29.4 ADMIN 控制台
 
 - Contributor/Operator 角色管理；
 - Operator attribution；
 - pause/unpause；
-- Challenge intake、证据验证、record/resolve Safe Transaction；
+- Challenge intake、证据验证、record/resolve 交易；
 - Pending SLA 和逾期告警；
 - 一次性 wiring 仅用于部署验收，不应长期出现在普通运营 UI。
+
+生产模式生成 Safe Transaction；当前 Base Sepolia EOA 测试模式允许直接钱包交易，但必须显示无多签保护警告。
 
 ### 29.5 Governance 控制台
 
@@ -1499,7 +1569,7 @@ idle
 - Challenge evidence schema、验证器、API/OpenAPI 文档和 SLA 联系方式；
 - Gateway API/OpenAPI、签名域、nonce、响应签名和错误码文档；
 - Indexer schema、回填策略和监控地址；
-- 唯一 `ADMIN_MULTISIG` Safe 地址、owner/threshold，以及运营直调和 Timelock 治理两条操作流程；
+- 唯一 `ADMIN_MULTISIG` authority 地址和地址类型；生产 Safe 还需提供 owner/threshold，以及运营直调和 Timelock 治理两条操作流程；
 - 发布审计报告和已知风险说明；
 - 测试网测试账户、测试 Token 获取方式及端到端验收记录。
 
@@ -1525,4 +1595,4 @@ idle
 
 前端应把“链上 getter + 当前确认区块”作为状态真相，把 Indexer 作为高效发现与历史查询层，把 Manifest/Gateway/Challenge 服务作为可验证的链下可用性层。任何链下服务返回的数据，都必须尽可能由链上 commitment、钱包签名或公开证据验证。
 
-在当前源码重新部署并通过部署验证之前，只能开发和本地联调，不应对历史 Base Sepolia 地址发送当前 ABI 的业务交易。
+当前第 2 节 Base Sepolia 地址已经通过最新源码的链上部署验证，可用于测试网开发和端到端联调。该部署启用了 EOA 管理员、60 秒 Timelock 和 60 秒 Challenge window，只能承载测试 Token 和测试数据；不得作为生产部署、真实资金安全证明或正式多签治理验收结果。

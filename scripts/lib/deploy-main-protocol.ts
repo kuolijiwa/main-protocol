@@ -105,10 +105,21 @@ export async function deployMainProtocol(
       ];
 
   if (deployerIsAdmin) {
-    await (await contributorRegistry.grantRole(contributorRole, nurtureContributor)).wait();
-    await (await contributorRegistry.grantRole(operatorRole, pipelineOperator)).wait();
+    let onboardingNonce = await ethers.provider.getTransactionCount(deployer.address, "pending");
     await (
-      await contributorRegistry.setOperatorContributor(pipelineOperator, nurtureContributor)
+      await contributorRegistry.grantRole(contributorRole, nurtureContributor, {
+        nonce: onboardingNonce++,
+      })
+    ).wait();
+    await (
+      await contributorRegistry.grantRole(operatorRole, pipelineOperator, {
+        nonce: onboardingNonce++,
+      })
+    ).wait();
+    await (
+      await contributorRegistry.setOperatorContributor(pipelineOperator, nurtureContributor, {
+        nonce: onboardingNonce++,
+      })
     ).wait();
   }
 
@@ -165,9 +176,16 @@ export async function deployMainProtocol(
 
   const marketplaceAddress = await marketplace.getAddress();
   if (deployerIsAdmin) {
-    await (await datasetRegistry.setMarketplaceOnce(marketplaceAddress)).wait();
-    await (await entitlementNFT.setMarketplaceOnce(marketplaceAddress)).wait();
-    await (await revenueSplitter.setMarketplaceOnce(marketplaceAddress)).wait();
+    let wiringNonce = await ethers.provider.getTransactionCount(deployer.address, "pending");
+    await (
+      await datasetRegistry.setMarketplaceOnce(marketplaceAddress, { nonce: wiringNonce++ })
+    ).wait();
+    await (
+      await entitlementNFT.setMarketplaceOnce(marketplaceAddress, { nonce: wiringNonce++ })
+    ).wait();
+    await (
+      await revenueSplitter.setMarketplaceOnce(marketplaceAddress, { nonce: wiringNonce++ })
+    ).wait();
   }
 
   const wiringTransactions: AdminTransaction[] = deployerIsAdmin
