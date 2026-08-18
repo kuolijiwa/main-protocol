@@ -20,6 +20,7 @@
     "test:marketplace": "hardhat test test/integration/Marketplace.ts",
     "deploy": "hardhat run scripts/deploy.ts",
     "verify:deployment": "hardhat run scripts/verify-deployment.ts",
+    "export:frontend-abi": "node scripts/export-frontend-abis.mjs",
     "validate:allocation": "hardhat run scripts/validate-merkle-allocation.ts",
     "generate:weights-manifest": "hardhat run scripts/generate-weights-manifest.ts",
     "verify:weights-manifest": "hardhat run scripts/verify-weights-manifest.ts",

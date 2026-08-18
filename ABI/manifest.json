@@ -1,0 +1,70 @@
+{
+  "schemaVersion": "main-protocol-frontend-abi-v1",
+  "format": "ABI-only JSON arrays",
+  "solidity": "0.8.28",
+  "evmTarget": "cancun",
+  "datasetRegistered": "DatasetRegistered(uint256,address,bytes32,bytes32,uint256)",
+  "manifestCommitmentDiscovery": [
+    "DatasetRegistry.weightsURI(uint256)",
+    "DatasetRegistry.weightsManifestHash(uint256)",
+    "DatasetRegistry.WEIGHTS_MANIFEST_VERSION()"
+  ],
+  "files": [
+    {
+      "contractName": "ContributorRegistry",
+      "artifactPath": "artifacts/contracts/ContributorRegistry.sol/ContributorRegistry.json",
+      "file": "ContributorRegistry.abi.json",
+      "entries": 28,
+      "sha256": "961ee7d6e2ed839dfd4f156e233427ba8a6f19f31af25cc662fbabe9b54b0b59"
+    },
+    {
+      "contractName": "ProtocolConfig",
+      "artifactPath": "artifacts/contracts/ProtocolConfig.sol/ProtocolConfig.json",
+      "file": "ProtocolConfig.abi.json",
+      "entries": 44,
+      "sha256": "1a518035966d75db3407ab9db1deeb2b9148f205ae815ff9bcc54a006012af68"
+    },
+    {
+      "contractName": "DatasetRegistry",
+      "artifactPath": "artifacts/contracts/DatasetRegistry.sol/DatasetRegistry.json",
+      "file": "DatasetRegistry.abi.json",
+      "entries": 77,
+      "sha256": "615a2b598123d9f5d7ae0c87160e4c400c1a2f4d4018ec1e038516cb6557f960"
+    },
+    {
+      "contractName": "EntitlementNFT",
+      "artifactPath": "artifacts/contracts/EntitlementNFT.sol/EntitlementNFT.json",
+      "file": "EntitlementNFT.abi.json",
+      "entries": 54,
+      "sha256": "cfdb4873adb2dad16b4ad9d45c7dbc6330cfcc64a041a157262625f296158dbc"
+    },
+    {
+      "contractName": "Marketplace",
+      "artifactPath": "artifacts/contracts/Marketplace.sol/Marketplace.json",
+      "file": "Marketplace.abi.json",
+      "entries": 68,
+      "sha256": "5db07a1343c247d9d63a7cba3b64a0dac58fa4472efec426d7e0148508534c25"
+    },
+    {
+      "contractName": "RevenueSplitter",
+      "artifactPath": "artifacts/contracts/RevenueSplitter.sol/RevenueSplitter.json",
+      "file": "RevenueSplitter.abi.json",
+      "entries": 71,
+      "sha256": "261e0e3142a1fd10a0cb8e05be5477d70eb6a2fd1185dbc6011c91b243c9b1e8"
+    },
+    {
+      "contractName": "ProtocolTimelock",
+      "artifactPath": "artifacts/contracts/ProtocolTimelock.sol/ProtocolTimelock.json",
+      "file": "ProtocolTimelock.abi.json",
+      "entries": 56,
+      "sha256": "0929dffa6dbd577fc5a9d1e8b3eb425cfc4ac007a6e18c99c3747d6c103e7068"
+    },
+    {
+      "contractName": "PaymentTokenERC20",
+      "artifactPath": null,
+      "file": "PaymentTokenERC20.abi.json",
+      "entries": 11,
+      "sha256": "e78d49e8f71fc7537dddd52f7f076d9a28103328dcaaf739e9343d0750e58912"
+    }
+  ]
+}

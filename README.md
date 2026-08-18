@@ -509,6 +509,7 @@ contracts/
   test/                       仅用于测试的 Mock/攻击合约
   utils/                      固定治理访问控制
   *.sol                       七个核心合约
+ABI/                          前端 ABI-only 文件、校验清单和 Base Sepolia 地址
 schemas/                      Manifest 与 Challenge evidence JSON Schema
 scripts/
   base-sepolia/               真实 RPC、逐角色验收脚本

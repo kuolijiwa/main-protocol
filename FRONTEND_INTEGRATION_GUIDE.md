@@ -287,19 +287,22 @@ src/protocol/
 
 ## 6. ABI 与版本管理
 
-开发阶段可从以下编译产物提取 `abi` 字段：
+前端应直接使用仓库根目录 `ABI/` 中经过导出和校验的 ABI-only 文件：
 
 ```text
-artifacts/contracts/ContributorRegistry.sol/ContributorRegistry.json
-artifacts/contracts/ProtocolConfig.sol/ProtocolConfig.json
-artifacts/contracts/DatasetRegistry.sol/DatasetRegistry.json
-artifacts/contracts/EntitlementNFT.sol/EntitlementNFT.json
-artifacts/contracts/Marketplace.sol/Marketplace.json
-artifacts/contracts/RevenueSplitter.sol/RevenueSplitter.json
-artifacts/contracts/ProtocolTimelock.sol/ProtocolTimelock.json
+ABI/ContributorRegistry.abi.json
+ABI/ProtocolConfig.abi.json
+ABI/DatasetRegistry.abi.json
+ABI/EntitlementNFT.abi.json
+ABI/Marketplace.abi.json
+ABI/RevenueSplitter.abi.json
+ABI/ProtocolTimelock.abi.json
+ABI/PaymentTokenERC20.abi.json
 ```
 
-不要把包含 bytecode、metadata 和调试信息的完整 Hardhat artifact 打包进浏览器。协议团队应发布 ABI-only 包，并将 ABI 版本与源码 commit、部署记录绑定。
+`ABI/index.ts` 提供统一导出，`ABI/manifest.json` 记录 artifact 来源、ABI entry 数量和 SHA-256，`ABI/base-sepolia.addresses.json` 提供当前测试网地址映射。详细列表见 `ABI/README.md`。
+
+这些文件通过 `npm run export:frontend-abi` 从当前 Hardhat artifact 生成。不要把包含 bytecode、metadata 和调试信息的完整 `artifacts/` 文件打包进浏览器。每次合约 ABI 变化都必须重新生成、校验清单并通知前端升级。
 
 ### 6.1 当前关键事件兼容要求
 
@@ -1590,6 +1593,9 @@ idle
 | `scripts/lib/weights-manifest.ts`                  | Manifest 权威验证逻辑     |
 | `scripts/lib/merkle-allocation.ts`                 | Merkle 权威实现           |
 | `artifacts/contracts/**`                           | 当前 Hardhat 编译 ABI     |
+| `ABI/README.md`                                    | 前端 ABI 文件列表与用法   |
+| `ABI/manifest.json`                                | ABI 来源、数量和 SHA-256  |
+| `ABI/base-sepolia.addresses.json`                  | 当前测试网地址映射        |
 
 ## 34. 最终接入原则
 
