@@ -48,13 +48,16 @@ contract Marketplace is
     error DatasetNotPurchasable(uint256 datasetId);
     error DatasetNotListable(uint256 datasetId);
     error DuplicateCopyLicense(uint256 datasetId, address buyer);
+    error PurchasePriceChanged(uint256 expectedPrice, uint256 actualPrice);
+    error PurchaseDeadlineExpired(uint256 deadline, uint256 currentTimestamp);
+    error ListingFeeExceeded(uint16 maxFeeBps, uint16 currentFeeBps);
     error IncorrectTokenTransfer(uint256 expected, uint256 received);
     error OnlyDatasetRegistry(address caller);
     error OnlyGovernanceTimelock(address caller);
     error GovernanceRoleLocked(address account);
 
-    event CopyListed(uint256 indexed datasetId, uint256 price);
-    event ExclusiveListed(uint256 indexed datasetId, uint256 price);
+    event CopyListed(uint256 indexed datasetId, uint256 price, uint16 maxFeeBps);
+    event ExclusiveListed(uint256 indexed datasetId, uint256 price, uint16 maxFeeBps);
     event ListingDelisted(uint256 indexed datasetId, SaleKind kind);
     event CopyPurchased(uint256 indexed datasetId, address indexed buyer, uint256 price);
     event ExclusivePurchased(uint256 indexed datasetId, address indexed buyer, uint256 price);
@@ -115,8 +118,17 @@ contract Marketplace is
         }
     }
 
-    function buyCopy(uint256 datasetId) external override nonReentrant {
-        Listing storage listing = _requirePurchase(datasetId, SaleKind.Copy);
+    function buyCopy(
+        uint256 datasetId,
+        uint256 expectedPrice,
+        uint256 deadline
+    ) external override nonReentrant {
+        Listing storage listing = _requirePurchase(
+            datasetId,
+            SaleKind.Copy,
+            expectedPrice,
+            deadline
+        );
         Dataset memory dataset = datasetRegistry.getDataset(datasetId);
         uint256 id = entitlementNFT.tokenId(datasetId, SaleKind.Copy);
         if (entitlementNFT.balanceOf(msg.sender, id) != 0) {
@@ -134,8 +146,17 @@ contract Marketplace is
         emit CopyPurchased(datasetId, msg.sender, price);
     }
 
-    function buyExclusive(uint256 datasetId) external override nonReentrant {
-        Listing storage listing = _requirePurchase(datasetId, SaleKind.Exclusive);
+    function buyExclusive(
+        uint256 datasetId,
+        uint256 expectedPrice,
+        uint256 deadline
+    ) external override nonReentrant {
+        Listing storage listing = _requirePurchase(
+            datasetId,
+            SaleKind.Exclusive,
+            expectedPrice,
+            deadline
+        );
         Dataset memory dataset = datasetRegistry.getDataset(datasetId);
         if (dataset.policy.exclusiveRequiresZeroCopies && dataset.copiesSold != 0) {
             revert ExclusiveRequiresZeroCopies(datasetId, dataset.copiesSold);
@@ -169,7 +190,7 @@ contract Marketplace is
     ) external view override returns (Listing memory) {
         Listing memory listing = _listings[datasetId][kind];
         if (listing.datasetId == 0) {
-            return Listing(datasetId, kind, 0, false);
+            return Listing(datasetId, kind, 0, 0, false);
         }
         return listing;
     }
@@ -204,21 +225,34 @@ contract Marketplace is
         Listing storage listing = _listings[datasetId][kind];
         if (listing.active) revert ListingAlreadyActive(datasetId, kind);
 
-        _listings[datasetId][kind] = Listing(datasetId, kind, price, true);
+        uint16 maxFeeBps = protocolConfig.feeBps();
+        _listings[datasetId][kind] = Listing(datasetId, kind, price, maxFeeBps, true);
         if (dataset.status != DatasetStatus.Listed) {
             datasetRegistry.markListed(datasetId);
         }
-        if (kind == SaleKind.Copy) emit CopyListed(datasetId, price);
-        else emit ExclusiveListed(datasetId, price);
+        if (kind == SaleKind.Copy) emit CopyListed(datasetId, price, maxFeeBps);
+        else emit ExclusiveListed(datasetId, price, maxFeeBps);
     }
 
     function _requirePurchase(
         uint256 datasetId,
-        SaleKind kind
+        SaleKind kind,
+        uint256 expectedPrice,
+        uint256 deadline
     ) private view returns (Listing storage listing) {
         if (protocolConfig.paused()) revert ProtocolPaused();
         listing = _listings[datasetId][kind];
         if (!listing.active) revert ListingNotActive(datasetId, kind);
+        if (block.timestamp > deadline) {
+            revert PurchaseDeadlineExpired(deadline, block.timestamp);
+        }
+        if (listing.price != expectedPrice) {
+            revert PurchasePriceChanged(expectedPrice, listing.price);
+        }
+        uint16 currentFeeBps = protocolConfig.feeBps();
+        if (currentFeeBps > listing.maxFeeBps) {
+            revert ListingFeeExceeded(listing.maxFeeBps, currentFeeBps);
+        }
         Dataset memory dataset = datasetRegistry.getDataset(datasetId);
         if (
             dataset.status != DatasetStatus.Listed ||

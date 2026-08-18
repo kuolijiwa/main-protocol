@@ -64,6 +64,21 @@ export function isSimulatedNetwork(connection: NetworkConnection): boolean {
   return connection.networkConfig.type === "edr-simulated";
 }
 
+export function validateAdminMode(
+  simulated: boolean,
+  env: Environment,
+  adminMultisig: string,
+  deployerAddress: string,
+): void {
+  const allowEoaAdmin = env.ALLOW_EOA_ADMIN === "true";
+  if (allowEoaAdmin && !simulated) {
+    throw new Error("ALLOW_EOA_ADMIN=true is permitted only on a local simulated network");
+  }
+  if (allowEoaAdmin && getAddress(deployerAddress) !== getAddress(adminMultisig)) {
+    throw new Error("ALLOW_EOA_ADMIN=true requires ADMIN_MULTISIG to equal the local deployer");
+  }
+}
+
 export function validateNetworkIdentity(
   simulated: boolean,
   networkName: string,
@@ -123,12 +138,7 @@ export async function validateExternalDeploymentInputs(
 ): Promise<ExternalValidationResult> {
   const { ethers } = connection;
   const allowEoaAdmin = env.ALLOW_EOA_ADMIN === "true";
-  if (allowEoaAdmin && !isSimulatedNetwork(connection)) {
-    throw new Error("ALLOW_EOA_ADMIN=true is permitted only on a local simulated network");
-  }
-  if (allowEoaAdmin && getAddress(deployerAddress) !== getAddress(adminMultisig)) {
-    throw new Error("ALLOW_EOA_ADMIN=true requires ADMIN_MULTISIG to equal the local deployer");
-  }
+  validateAdminMode(isSimulatedNetwork(connection), env, adminMultisig, deployerAddress);
   const chainId = (await ethers.provider.getNetwork()).chainId;
   validateNetworkIdentity(isSimulatedNetwork(connection), connection.networkName, chainId, env);
 

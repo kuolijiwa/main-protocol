@@ -9,11 +9,14 @@ const CHALLENGE_WINDOW = 7 * 24 * 60 * 60;
 describe("EntitlementNFT", function () {
   function params() {
     return {
+      expectedDatasetId: 1n,
       contentHash: ethers.id("payload"),
       sampleURI: "ipfs://sample",
       payloadURI: "ipfs://payload",
       weightsRoot: ethers.id("weights"),
       totalWeight: 100n,
+      weightsURI: "ipfs://weights-manifest-1",
+      weightsManifestHash: ethers.id("weights-manifest-1"),
       policy: {
         allowCopy: true,
         allowExclusive: true,
@@ -69,6 +72,7 @@ describe("EntitlementNFT", function () {
       .connect(admin)
       .grantRole(await contributors.CONTRIBUTOR_ROLE(), contributor.address);
     await datasets.connect(admin).setMarketplaceOnce(await marketplace.getAddress());
+    await marketplace.setBindings(await nft.getAddress(), ZeroAddress);
     await nft.connect(admin).setMarketplaceOnce(await marketplace.getAddress());
     await datasets.connect(contributor).registerDataset(params());
 
@@ -114,6 +118,17 @@ describe("EntitlementNFT", function () {
     return deployment;
   }
 
+  it("rejects every zero-address constructor dependency", async function () {
+    const [datasets, governance, admin] = await ethers.getSigners();
+    const factory = await ethers.getContractFactory("EntitlementNFT");
+    const valid = [datasets.address, governance.address, admin.address];
+    for (let index = 0; index < valid.length; ++index) {
+      const args = [...valid] as [string, string, string];
+      args[index] = ZeroAddress;
+      await expect(factory.deploy(...args)).to.be.revertedWithCustomError(factory, "ZeroAddress");
+    }
+  });
+
   it("wires Marketplace once and rejects unauthorized or invalid wiring", async function () {
     const { datasets, governance, admin, outsider } =
       await networkHelpers.loadFixture(deployFixture);
@@ -123,6 +138,7 @@ describe("EntitlementNFT", function () {
       admin.address,
     ]);
     const mock = await ethers.deployContract("MockMarketplace", [await datasets.getAddress()]);
+    await mock.setBindings(await fresh.getAddress(), ZeroAddress);
 
     await expect(
       fresh.connect(outsider).setMarketplaceOnce(await mock.getAddress()),
@@ -132,6 +148,17 @@ describe("EntitlementNFT", function () {
       .withArgs(outsider.address);
     await expect(
       fresh.connect(admin).setMarketplaceOnce(ZeroAddress),
+    ).to.be.revertedWithCustomError(fresh, "InvalidMarketplace");
+    const incompatible = await ethers.deployContract("MockERC20");
+    await expect(
+      fresh.connect(admin).setMarketplaceOnce(await incompatible.getAddress()),
+    ).to.be.revertedWithCustomError(fresh, "InvalidMarketplace");
+    const mismatched = await ethers.deployContract("MockMarketplace", [
+      await datasets.getAddress(),
+    ]);
+    await mismatched.setBindings(outsider.address, ZeroAddress);
+    await expect(
+      fresh.connect(admin).setMarketplaceOnce(await mismatched.getAddress()),
     ).to.be.revertedWithCustomError(fresh, "InvalidMarketplace");
     await expect(fresh.connect(admin).setMarketplaceOnce(await mock.getAddress()))
       .to.emit(fresh, "MarketplaceWired")

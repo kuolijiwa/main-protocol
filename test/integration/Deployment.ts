@@ -28,8 +28,7 @@ async function executeAdminTransactions(
 
 describe("Production deployment topology", function () {
   it("executes the shared deploy/verify logic for multisig and local-EOA modes", async function () {
-    const [deployer, secondOwner, treasury, gateway, nurture, pipeline, outsider] =
-      await ethers.getSigners();
+    const [deployer, secondOwner, treasury, gateway, nurture, pipeline] = await ethers.getSigners();
     const token = await ethers.deployContract("MockERC20");
     const safe = await ethers.deployContract("MockSafe", [
       [deployer.address, secondOwner.address],
@@ -99,7 +98,7 @@ describe("Production deployment topology", function () {
         await contributorRegistry.getAddress(),
         contributorRegistry.interface.encodeFunctionData("grantRole", [
           await contributorRegistry.CONTRIBUTOR_ROLE(),
-          outsider.address,
+          pipeline.address,
         ]),
       )
     ).wait();

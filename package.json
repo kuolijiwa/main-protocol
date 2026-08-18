@@ -20,7 +20,10 @@
     "test:marketplace": "hardhat test test/integration/Marketplace.ts",
     "deploy": "hardhat run scripts/deploy.ts",
     "verify:deployment": "hardhat run scripts/verify-deployment.ts",
-    "ci": "npm run format:check && npm run lint:sol && npm run typecheck && npm run coverage",
+    "validate:allocation": "hardhat run scripts/validate-merkle-allocation.ts",
+    "generate:weights-manifest": "hardhat run scripts/generate-weights-manifest.ts",
+    "verify:weights-manifest": "hardhat run scripts/verify-weights-manifest.ts",
+    "ci": "npm run format:check && npm run lint:sol && npm run typecheck && ALLOCATION_FILE=test-vectors/merkle.json npm run validate:allocation && npm run coverage",
     "clean": "hardhat clean"
   },
   "dependencies": {
@@ -32,6 +35,7 @@
     "@nomicfoundation/hardhat-ethers-chai-matchers": "3.0.11",
     "@nomicfoundation/hardhat-toolbox-mocha-ethers": "3.0.7",
     "@openzeppelin/hardhat-upgrades": "4.1.0",
+    "@safe-global/safe-smart-account": "1.5.0",
     "@types/chai": "5.2.3",
     "@types/mocha": "10.0.10",
     "@types/node": "latest",

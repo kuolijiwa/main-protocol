@@ -11,11 +11,19 @@ import {
     IDatasetRegistry
 } from "./interfaces/IDatasetRegistry.sol";
 import {IMarketplace} from "./interfaces/IMarketplace.sol";
+import {IMarketplaceBindings} from "./interfaces/IMarketplaceBindings.sol";
 
 /// @title DatasetRegistry
 /// @notice Stores immutable Dataset registrations and protocol-controlled lifecycle state.
 contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
     bytes32 public constant ADMIN_ROLE = keccak256("ADMIN");
+    bytes32 public constant override WEIGHTS_MANIFEST_VERSION = keccak256(
+        "main-protocol.weights-manifest.v1"
+    );
+    bytes32 public constant override CHALLENGE_EVIDENCE_VERSION = keccak256(
+        "main-protocol.weight-challenge-evidence.v1"
+    );
+    uint256 public constant override CHALLENGE_RESOLUTION_SLA = 72 hours;
 
     ContributorRegistry public immutable contributorRegistry;
     ProtocolConfig public immutable protocolConfig;
@@ -25,10 +33,15 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
     uint256 private _nextDatasetId = 1;
     mapping(uint256 datasetId => Dataset dataset) private _datasets;
     mapping(uint256 datasetId => bool exists) private _datasetExists;
+    mapping(uint256 datasetId => string uri) public override weightsURI;
+    mapping(uint256 datasetId => bytes32 manifestHash) public override weightsManifestHash;
 
     mapping(uint256 datasetId => uint256 deadline) public override challengeWindowEndsAt;
     mapping(uint256 datasetId => ChallengeStatus status) public override challengeStatus;
     mapping(uint256 datasetId => bytes32 evidenceHash) public override challengeEvidenceHash;
+    mapping(uint256 datasetId => string evidenceURI) public override challengeEvidenceURI;
+    mapping(uint256 datasetId => uint256 recordedAt) public override challengeRecordedAt;
+    mapping(uint256 datasetId => uint256 resolutionDueAt) public override challengeResolutionDueAt;
     mapping(uint256 datasetId => bool invalidated) public override weightsInvalidated;
 
     error ProtocolPaused();
@@ -43,6 +56,9 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
     error EmptyPayloadURI();
     error InvalidWeightsRoot();
     error InvalidTotalWeight();
+    error UnexpectedDatasetId(uint256 expected, uint256 actual);
+    error EmptyWeightsURI();
+    error InvalidWeightsManifestHash();
     error NoSaleKindEnabled();
     error TransferableCopyLicenseNotSupported();
     error InvalidDatasetStatus(uint256 datasetId, DatasetStatus status);
@@ -51,6 +67,7 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
     error ChallengeWindowClosed(uint256 datasetId, uint256 deadline);
     error InvalidChallengeTransition(uint256 datasetId, ChallengeStatus status);
     error InvalidEvidenceHash();
+    error EmptyEvidenceURI();
     error CopySaleNotAllowed(uint256 datasetId);
     error ExclusiveSaleNotAllowed(uint256 datasetId);
     error CopiesAlreadySold(uint256 datasetId, uint64 copiesSold);
@@ -60,9 +77,18 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
         address indexed contributor,
         bytes32 contentHash,
         bytes32 weightsRoot,
-        uint256 totalWeight
+        uint256 totalWeight,
+        string weightsURI,
+        bytes32 weightsManifestHash,
+        bytes32 weightsManifestVersion
     );
-    event WeightChallengePending(uint256 indexed datasetId, bytes32 indexed evidenceHash);
+    event WeightChallengePending(
+        uint256 indexed datasetId,
+        bytes32 indexed evidenceHash,
+        string evidenceURI,
+        bytes32 evidenceVersion,
+        uint256 resolutionDueAt
+    );
     event WeightChallengeResolved(uint256 indexed datasetId, bool upheld);
     event MarketplaceWired(address indexed marketplace);
 
@@ -97,6 +123,11 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
         if (marketplace_ == address(0) || marketplace_.code.length == 0) {
             revert InvalidMarketplace(marketplace_);
         }
+        try IMarketplaceBindings(marketplace_).datasetRegistry() returns (address configured) {
+            if (configured != address(this)) revert InvalidMarketplace(marketplace_);
+        } catch {
+            revert InvalidMarketplace(marketplace_);
+        }
 
         marketplace = marketplace_;
         emit MarketplaceWired(marketplace_);
@@ -107,7 +138,7 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
     ) external override returns (uint256 datasetId) {
         _requireOperational();
         address contributor = _resolveContributor(msg.sender);
-        _validateRegistration(p);
+        _validateRegistration(p, _nextDatasetId);
 
         datasetId = _nextDatasetId++;
         uint64 createdAt = uint64(block.timestamp);
@@ -127,9 +158,20 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
             createdAt: createdAt
         });
         _datasetExists[datasetId] = true;
+        weightsURI[datasetId] = p.weightsURI;
+        weightsManifestHash[datasetId] = p.weightsManifestHash;
         challengeWindowEndsAt[datasetId] = block.timestamp + protocolConfig.challengeWindow();
 
-        emit DatasetRegistered(datasetId, contributor, p.contentHash, p.weightsRoot, p.totalWeight);
+        emit DatasetRegistered(
+            datasetId,
+            contributor,
+            p.contentHash,
+            p.weightsRoot,
+            p.totalWeight,
+            p.weightsURI,
+            p.weightsManifestHash,
+            WEIGHTS_MANIFEST_VERSION
+        );
     }
 
     function getDataset(uint256 datasetId) external view override returns (Dataset memory) {
@@ -137,9 +179,14 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
         return _datasets[datasetId];
     }
 
+    function nextDatasetId() external view override returns (uint256) {
+        return _nextDatasetId;
+    }
+
     function recordChallenge(
         uint256 datasetId,
-        bytes32 evidenceHash
+        bytes32 evidenceHash,
+        string calldata evidenceURI
     ) external override onlyRole(ADMIN_ROLE) {
         _requireDataset(datasetId);
         uint256 deadline = challengeWindowEndsAt[datasetId];
@@ -147,6 +194,7 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
             revert ChallengeWindowClosed(datasetId, deadline);
         }
         if (evidenceHash == bytes32(0)) revert InvalidEvidenceHash();
+        if (bytes(evidenceURI).length == 0) revert EmptyEvidenceURI();
 
         ChallengeStatus status = challengeStatus[datasetId];
         if (status != ChallengeStatus.None && status != ChallengeStatus.Rejected) {
@@ -155,7 +203,16 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
 
         challengeStatus[datasetId] = ChallengeStatus.Pending;
         challengeEvidenceHash[datasetId] = evidenceHash;
-        emit WeightChallengePending(datasetId, evidenceHash);
+        challengeEvidenceURI[datasetId] = evidenceURI;
+        challengeRecordedAt[datasetId] = block.timestamp;
+        challengeResolutionDueAt[datasetId] = block.timestamp + CHALLENGE_RESOLUTION_SLA;
+        emit WeightChallengePending(
+            datasetId,
+            evidenceHash,
+            evidenceURI,
+            CHALLENGE_EVIDENCE_VERSION,
+            block.timestamp + CHALLENGE_RESOLUTION_SLA
+        );
     }
 
     function resolveChallenge(
@@ -243,12 +300,20 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
         return contributor;
     }
 
-    function _validateRegistration(RegisterParams calldata p) private pure {
+    function _validateRegistration(
+        RegisterParams calldata p,
+        uint256 actualDatasetId
+    ) private pure {
+        if (p.expectedDatasetId != actualDatasetId) {
+            revert UnexpectedDatasetId(p.expectedDatasetId, actualDatasetId);
+        }
         if (p.contentHash == bytes32(0)) revert InvalidContentHash();
         if (bytes(p.sampleURI).length == 0) revert EmptySampleURI();
         if (bytes(p.payloadURI).length == 0) revert EmptyPayloadURI();
         if (p.weightsRoot == bytes32(0)) revert InvalidWeightsRoot();
         if (p.totalWeight == 0) revert InvalidTotalWeight();
+        if (bytes(p.weightsURI).length == 0) revert EmptyWeightsURI();
+        if (p.weightsManifestHash == bytes32(0)) revert InvalidWeightsManifestHash();
         if (!p.policy.allowCopy && !p.policy.allowExclusive) {
             revert NoSaleKindEnabled();
         }

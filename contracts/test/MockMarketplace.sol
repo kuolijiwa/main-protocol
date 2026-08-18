@@ -7,6 +7,8 @@ import {IRevenueSplitter} from "../interfaces/IRevenueSplitter.sol";
 
 contract MockMarketplace {
     IDatasetRegistry public immutable datasetRegistry;
+    address public entitlementNFT;
+    address public revenueSplitter;
     mapping(uint256 datasetId => uint256 calls) public invalidationCalls;
     bool public rejectInvalidation;
 
@@ -15,6 +17,11 @@ contract MockMarketplace {
 
     constructor(address datasetRegistry_) {
         datasetRegistry = IDatasetRegistry(datasetRegistry_);
+    }
+
+    function setBindings(address entitlementNFT_, address revenueSplitter_) external {
+        entitlementNFT = entitlementNFT_;
+        revenueSplitter = revenueSplitter_;
     }
 
     function setRejectInvalidation(bool reject) external {
@@ -46,15 +53,15 @@ contract MockMarketplace {
     }
 
     function mintEntitlement(
-        address entitlementNFT,
+        address entitlementNFT_,
         address to,
         uint256 datasetId,
         SaleKind kind
     ) external {
-        IEntitlementNFT(entitlementNFT).mint(to, datasetId, kind);
+        IEntitlementNFT(entitlementNFT_).mint(to, datasetId, kind);
     }
 
-    function accrueRevenue(address revenueSplitter, uint256 datasetId, uint256 gross) external {
-        IRevenueSplitter(revenueSplitter).accrue(datasetId, gross);
+    function accrueRevenue(address revenueSplitter_, uint256 datasetId, uint256 gross) external {
+        IRevenueSplitter(revenueSplitter_).accrue(datasetId, gross);
     }
 }

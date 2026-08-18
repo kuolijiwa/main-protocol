@@ -2,7 +2,23 @@ import { expect } from "chai";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 
-type AbiEntry = { type: string; name?: string };
+type AbiEntry = { type: string; name?: string; inputs?: Array<{ type: string }> };
+
+async function functionSignatures(contractName: string): Promise<Set<string>> {
+  const artifactPath = path.join(
+    process.cwd(),
+    "artifacts",
+    "contracts",
+    `${contractName}.sol`,
+    `${contractName}.json`,
+  );
+  const artifact = JSON.parse(await readFile(artifactPath, "utf8")) as { abi: AbiEntry[] };
+  return new Set(
+    artifact.abi
+      .filter((entry) => entry.type === "function" && entry.name !== undefined)
+      .map((entry) => `${entry.name}(${(entry.inputs ?? []).map(({ type }) => type).join(",")})`),
+  );
+}
 
 async function functionNames(contractName: string): Promise<Set<string>> {
   const artifactPath = path.join(
@@ -64,6 +80,15 @@ describe("V1 artifact and deployment scope", function () {
       for (const forbiddenName of ["AuctionHouse", "IAuctionHouse"]) {
         expect(entries.some((entry) => entry.includes(forbiddenName))).to.equal(false);
       }
+    }
+
+    const marketplaceSignatures = await functionSignatures("Marketplace");
+    for (const name of ["buyCopy", "buyExclusive"]) {
+      expect(
+        marketplaceSignatures.has(`${name}(uint256)`),
+        `${name} unprotected overload`,
+      ).to.equal(false);
+      expect(marketplaceSignatures.has(`${name}(uint256,uint256,uint256)`)).to.equal(true);
     }
   });
 
@@ -127,9 +152,11 @@ describe("V1 artifact and deployment scope", function () {
     ]) {
       expect(deploymentSource.includes(requiredCheck), requiredCheck).to.equal(true);
     }
-    expect(deploymentSource.includes("allowEoaAdmin && !isSimulatedNetwork(connection)")).to.equal(
-      true,
-    );
+    expect(
+      deploymentSource.includes(
+        "ALLOW_EOA_ADMIN=true is permitted only on a local simulated network",
+      ),
+    ).to.equal(true);
     expect(verificationSource.includes("getMinDelay()) >= 48n * 60n * 60n")).to.equal(true);
     for (const productionGuard of [
       "EXPECTED_CHAIN_ID",

@@ -4,6 +4,7 @@ import { network } from "hardhat";
 import {
   type Environment,
   PERSISTENT_NETWORK_CHAIN_IDS,
+  validateAdminMode,
   validateExternalDeploymentInputs,
   validateNetworkIdentity,
 } from "../../scripts/lib/deployment-validation.js";
@@ -64,6 +65,20 @@ describe("Deployment validation", function () {
     expect(() =>
       validateNetworkIdentity(true, "hardhat", 31_337n, { EXPECTED_CHAIN_ID: "1" }),
     ).to.throw("chain ID mismatch");
+  });
+
+  it("allows the EOA-admin exception only locally and only for the deployer", function () {
+    const deployer = "0x1111111111111111111111111111111111111111";
+    const other = "0x2222222222222222222222222222222222222222";
+    expect(() =>
+      validateAdminMode(true, { ALLOW_EOA_ADMIN: "true" }, deployer, deployer),
+    ).not.to.throw();
+    expect(() =>
+      validateAdminMode(false, { ALLOW_EOA_ADMIN: "true" }, deployer, deployer),
+    ).to.throw("permitted only on a local simulated network");
+    expect(() => validateAdminMode(true, { ALLOW_EOA_ADMIN: "true" }, other, deployer)).to.throw(
+      "requires ADMIN_MULTISIG to equal the local deployer",
+    );
   });
 
   it("rejects payment-token code-hash and decimals mismatches", async function () {
@@ -157,6 +172,72 @@ describe("Deployment validation", function () {
         deployer.address,
       ),
       "ADMIN_MULTISIG threshold mismatch",
+    );
+  });
+
+  it("rejects dependencies with no code or incompatible read interfaces", async function () {
+    const [deployer, secondOwner, thirdOwner, noCode] = await ethers.getSigners();
+    const token = await ethers.deployContract("MockERC20");
+    const safe = await ethers.deployContract("MockSafe", [
+      [deployer.address, secondOwner.address, thirdOwner.address],
+      3,
+    ]);
+    const tokenAddress = await token.getAddress();
+    const safeAddress = await safe.getAddress();
+    const base: Environment = {
+      EXPECTED_CHAIN_ID: (await ethers.provider.getNetwork()).chainId.toString(),
+      PAYMENT_TOKEN_CODE_HASH: keccak256(await ethers.provider.getCode(tokenAddress)),
+      PAYMENT_TOKEN_DECIMALS: "18",
+      ADMIN_MULTISIG_CODE_HASH: keccak256(await ethers.provider.getCode(safeAddress)),
+      ADMIN_MULTISIG_OWNERS: `${deployer.address},${secondOwner.address},${thirdOwner.address}`,
+      ADMIN_MULTISIG_THRESHOLD: "3",
+    };
+
+    await expectFailure(
+      validateExternalDeploymentInputs(
+        connection,
+        { ...base, PAYMENT_TOKEN_CODE_HASH: ZeroHash },
+        noCode.address,
+        safeAddress,
+        deployer.address,
+      ),
+      "PAYMENT_TOKEN has no deployed code",
+    );
+    await expectFailure(
+      validateExternalDeploymentInputs(
+        connection,
+        {
+          ...base,
+          PAYMENT_TOKEN_CODE_HASH: keccak256(await ethers.provider.getCode(safeAddress)),
+        },
+        safeAddress,
+        safeAddress,
+        deployer.address,
+      ),
+      "PAYMENT_TOKEN does not expose the required ERC-20 read interface",
+    );
+    await expectFailure(
+      validateExternalDeploymentInputs(
+        connection,
+        { ...base, ADMIN_MULTISIG_CODE_HASH: ZeroHash },
+        tokenAddress,
+        noCode.address,
+        deployer.address,
+      ),
+      "ADMIN_MULTISIG has no deployed code",
+    );
+    await expectFailure(
+      validateExternalDeploymentInputs(
+        connection,
+        {
+          ...base,
+          ADMIN_MULTISIG_CODE_HASH: keccak256(await ethers.provider.getCode(tokenAddress)),
+        },
+        tokenAddress,
+        tokenAddress,
+        deployer.address,
+      ),
+      "ADMIN_MULTISIG is not compatible with the required Safe read interface",
     );
   });
 });

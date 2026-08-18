@@ -13,4 +13,6 @@ interface IRevenueSplitter {
     ) external view returns (uint256);
 
     function withdrawTreasury() external returns (uint256 amount);
+
+    function rescueToken(address token, address recipient, uint256 amount) external;
 }

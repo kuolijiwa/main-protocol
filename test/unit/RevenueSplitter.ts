@@ -68,11 +68,14 @@ describe("RevenueSplitter", function () {
     const contributorLeaf = leaf(contributor.address, CONTRIBUTOR_WEIGHT);
     const root = pairHash(labelerLeaf, contributorLeaf);
     await datasets.connect(contributor).registerDataset({
+      expectedDatasetId: 1,
       contentHash: ethers.id("payload"),
       sampleURI: "ipfs://sample",
       payloadURI: "ipfs://payload",
       weightsRoot: root,
       totalWeight: TOTAL_WEIGHT,
+      weightsURI: "ipfs://weights-manifest-1",
+      weightsManifestHash: ethers.id("weights-manifest-1"),
       policy: {
         allowCopy: true,
         allowExclusive: true,
@@ -89,6 +92,7 @@ describe("RevenueSplitter", function () {
       { kind: "uups" },
     );
     await splitter.waitForDeployment();
+    await marketplace.setBindings(ZeroAddress, await splitter.getAddress());
     await splitter.connect(admin).setMarketplaceOnce(await marketplace.getAddress());
 
     return {
@@ -148,6 +152,24 @@ describe("RevenueSplitter", function () {
     ).to.be.revertedWithCustomError(splitter, "InvalidInitialization");
   });
 
+  it("rejects every zero-address RevenueSplitter initializer dependency", async function () {
+    const { governance, admin, config, datasets } = await networkHelpers.loadFixture(deployFixture);
+    const factory = await ethers.getContractFactory("RevenueSplitter");
+    const valid = [
+      await config.getAddress(),
+      await datasets.getAddress(),
+      governance.address,
+      admin.address,
+    ];
+    for (let index = 0; index < valid.length; ++index) {
+      const args = [...valid] as [string, string, string, string];
+      args[index] = ZeroAddress;
+      await expect(
+        upgradesApi.deployProxy(factory, args, { kind: "uups" }),
+      ).to.be.revertedWithCustomError(factory, "ZeroAddress");
+    }
+  });
+
   it("rejects accrual before the deadline and without exact backing", async function () {
     const { splitter, marketplace, datasets, datasetId } =
       await networkHelpers.loadFixture(deployFixture);
@@ -188,6 +210,7 @@ describe("RevenueSplitter", function () {
     expect(await splitter.treasuryBalance()).to.equal(25);
     expect(await splitter.contributorBalance()).to.equal(975);
     expect(await splitter.cumulativeRevenue(datasetId)).to.equal(975);
+    expect(await splitter.unclaimedRevenue(datasetId)).to.equal(975);
   });
 
   it("previews and pays a valid Merkle claim", async function () {
@@ -202,10 +225,53 @@ describe("RevenueSplitter", function () {
     expect(await token.balanceOf(labeler.address)).to.equal(390);
     expect(await splitter.claimed(datasetId, labeler.address)).to.equal(390);
     expect(await splitter.contributorBalance()).to.equal(585);
+    expect(await splitter.unclaimedRevenue(datasetId)).to.equal(585);
     expect(await splitter.claimable(datasetId, labeler.address, LABELER_WEIGHT)).to.equal(0);
     await expect(
       splitter.connect(labeler).claim(datasetId, LABELER_WEIGHT, labelerProof),
     ).to.be.revertedWithCustomError(splitter, "NothingToClaim");
+  });
+
+  it("rejects outbound fee deductions without consuming a contributor claim", async function () {
+    const { splitter, token, labeler, labelerProof, datasetId } =
+      await networkHelpers.loadFixture(accruedFixture);
+    await token.setOutboundFee(await splitter.getAddress(), 1_000);
+
+    await expect(splitter.connect(labeler).claim(datasetId, LABELER_WEIGHT, labelerProof))
+      .to.be.revertedWithCustomError(splitter, "IncorrectTokenTransfer")
+      .withArgs(390, 351);
+    expect(await splitter.claimed(datasetId, labeler.address)).to.equal(0);
+    expect(await splitter.unclaimedRevenue(datasetId)).to.equal(975);
+    expect(await token.balanceOf(labeler.address)).to.equal(0);
+
+    await token.setOutboundFee(ZeroAddress, 0);
+    await splitter.connect(labeler).claim(datasetId, LABELER_WEIGHT, labelerProof);
+    expect(await token.balanceOf(labeler.address)).to.equal(390);
+  });
+
+  it("rolls back a blacklisted claim and blocks payouts after negative rebasing", async function () {
+    const blacklisted = await networkHelpers.loadFixture(accruedFixture);
+    await blacklisted.token.setBlocked(blacklisted.labeler.address, true);
+    await expect(
+      blacklisted.splitter
+        .connect(blacklisted.labeler)
+        .claim(blacklisted.datasetId, LABELER_WEIGHT, blacklisted.labelerProof),
+    )
+      .to.be.revertedWithCustomError(blacklisted.token, "MockTokenBlocked")
+      .withArgs(blacklisted.labeler.address);
+    expect(
+      await blacklisted.splitter.claimed(blacklisted.datasetId, blacklisted.labeler.address),
+    ).to.equal(0);
+
+    await blacklisted.token.setBlocked(blacklisted.labeler.address, false);
+    await blacklisted.token.burn(await blacklisted.splitter.getAddress(), 1);
+    await expect(
+      blacklisted.splitter
+        .connect(blacklisted.labeler)
+        .claim(blacklisted.datasetId, LABELER_WEIGHT, blacklisted.labelerProof),
+    )
+      .to.be.revertedWithCustomError(blacklisted.splitter, "InsufficientTokenBacking")
+      .withArgs(999, 1_000);
   });
 
   it("blocks claims at deadline minus one and permits them at the exact deadline", async function () {
@@ -235,6 +301,84 @@ describe("RevenueSplitter", function () {
     await expect(
       splitter.connect(labeler).claim(datasetId, LABELER_WEIGHT, []),
     ).to.be.revertedWithCustomError(splitter, "InvalidMerkleProof");
+  });
+
+  it("isolates each Dataset from an allocation whose valid leaves exceed totalWeight", async function () {
+    const {
+      splitter,
+      token,
+      marketplace,
+      datasets,
+      contributor,
+      labeler,
+      contributorProof,
+      datasetId,
+    } = await networkHelpers.loadFixture(deployFixture);
+    const excessiveWeight = 100n;
+    const labelerLeaf = leaf(labeler.address, excessiveWeight);
+    const contributorLeaf = leaf(contributor.address, excessiveWeight);
+    await datasets.connect(contributor).registerDataset({
+      expectedDatasetId: 2,
+      contentHash: ethers.id("malformed-allocation"),
+      sampleURI: "ipfs://sample-2",
+      payloadURI: "ipfs://payload-2",
+      weightsRoot: pairHash(labelerLeaf, contributorLeaf),
+      totalWeight: 100,
+      weightsURI: "ipfs://weights-manifest-2",
+      weightsManifestHash: ethers.id("weights-manifest-2"),
+      policy: {
+        allowCopy: true,
+        allowExclusive: false,
+        exclusiveRequiresZeroCopies: false,
+        licensesTransferable: false,
+      },
+      tag: "malformed",
+    });
+
+    await networkHelpers.time.setNextBlockTimestamp(await datasets.challengeWindowEndsAt(2));
+    await token.mint(await splitter.getAddress(), 2_000);
+    await marketplace.accrueRevenue(await splitter.getAddress(), datasetId, 1_000);
+    await marketplace.accrueRevenue(await splitter.getAddress(), 2, 1_000);
+
+    await splitter.connect(labeler).claim(2, excessiveWeight, [contributorLeaf]);
+    expect(await splitter.unclaimedRevenue(2)).to.equal(0);
+    await expect(splitter.connect(contributor).claim(2, excessiveWeight, [labelerLeaf]))
+      .to.be.revertedWithCustomError(splitter, "DatasetRevenueExceeded")
+      .withArgs(2, 0, 975);
+
+    expect(await splitter.unclaimedRevenue(datasetId)).to.equal(975);
+    await splitter.connect(contributor).claim(datasetId, CONTRIBUTOR_WEIGHT, contributorProof);
+    expect(await token.balanceOf(contributor.address)).to.equal(585);
+  });
+
+  it("rejects a valid Merkle leaf whose individual weight exceeds totalWeight", async function () {
+    const { splitter, token, marketplace, datasets, contributor, labeler } =
+      await networkHelpers.loadFixture(deployFixture);
+    const excessiveWeight = TOTAL_WEIGHT + 1n;
+    await datasets.connect(contributor).registerDataset({
+      expectedDatasetId: 2,
+      contentHash: ethers.id("oversized-leaf"),
+      sampleURI: "ipfs://sample-2",
+      payloadURI: "ipfs://payload-2",
+      weightsRoot: leaf(labeler.address, excessiveWeight),
+      totalWeight: TOTAL_WEIGHT,
+      weightsURI: "ipfs://weights-manifest-2",
+      weightsManifestHash: ethers.id("weights-manifest-2"),
+      policy: {
+        allowCopy: true,
+        allowExclusive: false,
+        exclusiveRequiresZeroCopies: false,
+        licensesTransferable: false,
+      },
+      tag: "oversized-leaf",
+    });
+    await networkHelpers.time.setNextBlockTimestamp(await datasets.challengeWindowEndsAt(2));
+    await token.mint(await splitter.getAddress(), 1_000);
+    await marketplace.accrueRevenue(await splitter.getAddress(), 2, 1_000);
+
+    await expect(splitter.connect(labeler).claim(2, excessiveWeight, []))
+      .to.be.revertedWithCustomError(splitter, "InvalidClaimWeight")
+      .withArgs(excessiveWeight, TOTAL_WEIGHT);
   });
 
   it("keeps claimable advisory and rejects the wrong claimant address", async function () {
@@ -363,8 +507,51 @@ describe("RevenueSplitter", function () {
     );
   });
 
+  it("rejects an outbound fee deduction from a treasury withdrawal", async function () {
+    const { splitter, token, treasury } = await networkHelpers.loadFixture(accruedFixture);
+    await token.setOutboundFee(await splitter.getAddress(), 1_000);
+
+    await expect(splitter.withdrawTreasury())
+      .to.be.revertedWithCustomError(splitter, "IncorrectTokenTransfer")
+      .withArgs(25, 23);
+    expect(await splitter.treasuryBalance()).to.equal(25);
+    expect(await token.balanceOf(treasury.address)).to.equal(0);
+  });
+
+  it("rescues unrelated tokens and only true payment-token surplus through governance", async function () {
+    const { splitter, token, governance, outsider } =
+      await networkHelpers.loadFixture(accruedFixture);
+    const unrelated = await ethers.deployContract("MockERC20");
+    await unrelated.mint(await splitter.getAddress(), 50);
+
+    await expect(
+      splitter.connect(outsider).rescueToken(await unrelated.getAddress(), outsider.address, 50),
+    )
+      .to.be.revertedWithCustomError(splitter, "OnlyGovernanceTimelock")
+      .withArgs(outsider.address);
+    await expect(
+      splitter.connect(governance).rescueToken(ZeroAddress, outsider.address, 1),
+    ).to.be.revertedWithCustomError(splitter, "ZeroAddress");
+    await expect(
+      splitter.connect(governance).rescueToken(await unrelated.getAddress(), outsider.address, 50),
+    )
+      .to.emit(splitter, "TokenRescued")
+      .withArgs(await unrelated.getAddress(), outsider.address, 50);
+
+    await token.mint(await splitter.getAddress(), 100);
+    await expect(
+      splitter.connect(governance).rescueToken(await token.getAddress(), outsider.address, 101),
+    )
+      .to.be.revertedWithCustomError(splitter, "RescueAmountExceedsSurplus")
+      .withArgs(100, 101);
+    await splitter.connect(governance).rescueToken(await token.getAddress(), outsider.address, 100);
+    expect(await token.balanceOf(await splitter.getAddress())).to.equal(1_000);
+    expect(await splitter.treasuryBalance()).to.equal(25);
+    expect(await splitter.contributorBalance()).to.equal(975);
+  });
+
   it("enforces complete one-time Marketplace wiring", async function () {
-    const { config, datasets, governance, admin, outsider, marketplace } =
+    const { config, datasets, governance, admin, outsider } =
       await networkHelpers.loadFixture(deployFixture);
     const factory = await ethers.getContractFactory("RevenueSplitter");
     const fresh = await upgradesApi.deployProxy(
@@ -372,6 +559,10 @@ describe("RevenueSplitter", function () {
       [await config.getAddress(), await datasets.getAddress(), governance.address, admin.address],
       { kind: "uups" },
     );
+    const marketplace = await ethers.deployContract("MockMarketplace", [
+      await datasets.getAddress(),
+    ]);
+    await marketplace.setBindings(ZeroAddress, await fresh.getAddress());
 
     await expect(
       marketplace.accrueRevenue(await fresh.getAddress(), 1, 1),
@@ -384,6 +575,17 @@ describe("RevenueSplitter", function () {
     ).to.be.revertedWithCustomError(fresh, "InvalidMarketplace");
     await expect(
       fresh.connect(admin).setMarketplaceOnce(outsider.address),
+    ).to.be.revertedWithCustomError(fresh, "InvalidMarketplace");
+    const incompatible = await ethers.deployContract("MockERC20");
+    await expect(
+      fresh.connect(admin).setMarketplaceOnce(await incompatible.getAddress()),
+    ).to.be.revertedWithCustomError(fresh, "InvalidMarketplace");
+    const mismatched = await ethers.deployContract("MockMarketplace", [
+      await datasets.getAddress(),
+    ]);
+    await mismatched.setBindings(ZeroAddress, outsider.address);
+    await expect(
+      fresh.connect(admin).setMarketplaceOnce(await mismatched.getAddress()),
     ).to.be.revertedWithCustomError(fresh, "InvalidMarketplace");
     await expect(fresh.connect(admin).setMarketplaceOnce(await marketplace.getAddress()))
       .to.emit(fresh, "MarketplaceWired")

@@ -11,6 +11,7 @@ import {
     SaleKind
 } from "./interfaces/IDatasetRegistry.sol";
 import {IEntitlementNFT} from "./interfaces/IEntitlementNFT.sol";
+import {IMarketplaceBindings} from "./interfaces/IMarketplaceBindings.sol";
 
 /// @title EntitlementNFT
 /// @notice ERC-1155 access rights for non-transferable Copy licenses and transferable Exclusive titles.
@@ -50,6 +51,11 @@ contract EntitlementNFT is ERC1155, FixedGovernanceAccessControl, IEntitlementNF
     function setMarketplaceOnce(address marketplace_) external onlyRole(ADMIN_ROLE) {
         if (marketplace != address(0)) revert MarketplaceAlreadyWired();
         if (marketplace_ == address(0) || marketplace_.code.length == 0) {
+            revert InvalidMarketplace(marketplace_);
+        }
+        try IMarketplaceBindings(marketplace_).entitlementNFT() returns (address configured) {
+            if (configured != address(this)) revert InvalidMarketplace(marketplace_);
+        } catch {
             revert InvalidMarketplace(marketplace_);
         }
         marketplace = marketplace_;

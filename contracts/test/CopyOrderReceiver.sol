@@ -23,7 +23,7 @@ contract CopyOrderReceiver is ERC1155Holder {
     function buyCopy(uint256 datasetId, uint256 price) external {
         buyingDatasetId = datasetId;
         paymentToken.approve(address(marketplace), price);
-        marketplace.buyCopy(datasetId);
+        marketplace.buyCopy(datasetId, price, type(uint256).max);
     }
 
     function onERC1155Received(

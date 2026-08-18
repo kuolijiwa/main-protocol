@@ -1,6 +1,11 @@
 import { expect } from "chai";
-import { ZeroAddress } from "ethers";
+import { AbiCoder, ZeroAddress, keccak256 } from "ethers";
 import { network } from "hardhat";
+import {
+  buildWeightsManifest,
+  fetchAndValidateWeightsManifest,
+  hashWeightsManifest,
+} from "../../scripts/lib/weights-manifest.js";
 
 const { ethers, networkHelpers } = await network.create();
 
@@ -8,13 +13,16 @@ const DAY = 24 * 60 * 60;
 const CHALLENGE_WINDOW = 7 * DAY;
 
 describe("DatasetRegistry", function () {
-  function validParams() {
+  function validParams(expectedDatasetId = 1n) {
     return {
+      expectedDatasetId,
       contentHash: ethers.id("encrypted-payload"),
       sampleURI: "ipfs://sample",
       payloadURI: "ipfs://encrypted-payload",
       weightsRoot: ethers.id("weights-root"),
       totalWeight: 1_000n,
+      weightsURI: `ipfs://weights-manifest-${expectedDatasetId}`,
+      weightsManifestHash: ethers.id(`weights-manifest-${expectedDatasetId}`),
       policy: {
         allowCopy: true,
         allowExclusive: true,
@@ -106,8 +114,19 @@ describe("DatasetRegistry", function () {
   }
 
   describe("wiring and registration", function () {
+    it("rejects every zero-address constructor dependency", async function () {
+      const [contributors, config, governance, admin] = await ethers.getSigners();
+      const factory = await ethers.getContractFactory("DatasetRegistry");
+      const valid = [contributors.address, config.address, governance.address, admin.address];
+      for (let index = 0; index < valid.length; ++index) {
+        const args = [...valid] as [string, string, string, string];
+        args[index] = ZeroAddress;
+        await expect(factory.deploy(...args)).to.be.revertedWithCustomError(factory, "ZeroAddress");
+      }
+    });
+
     it("requires one-time ADMIN wiring to a contract", async function () {
-      const { datasetRegistry, admin, outsider } =
+      const { datasetRegistry, protocolConfig, admin, outsider } =
         await networkHelpers.loadFixture(deployUnwiredFixture);
       const marketplace = await ethers.deployContract("MockMarketplace", [
         await datasetRegistry.getAddress(),
@@ -121,6 +140,13 @@ describe("DatasetRegistry", function () {
       ).to.be.revertedWithCustomError(datasetRegistry, "InvalidMarketplace");
       await expect(
         datasetRegistry.connect(admin).setMarketplaceOnce(outsider.address),
+      ).to.be.revertedWithCustomError(datasetRegistry, "InvalidMarketplace");
+      await expect(
+        datasetRegistry.connect(admin).setMarketplaceOnce(await protocolConfig.getAddress()),
+      ).to.be.revertedWithCustomError(datasetRegistry, "InvalidMarketplace");
+      const mismatched = await ethers.deployContract("MockMarketplace", [outsider.address]);
+      await expect(
+        datasetRegistry.connect(admin).setMarketplaceOnce(await mismatched.getAddress()),
       ).to.be.revertedWithCustomError(datasetRegistry, "InvalidMarketplace");
 
       await expect(
@@ -162,6 +188,9 @@ describe("DatasetRegistry", function () {
           params.contentHash,
           params.weightsRoot,
           params.totalWeight,
+          params.weightsURI,
+          params.weightsManifestHash,
+          await datasetRegistry.WEIGHTS_MANIFEST_VERSION(),
         );
 
       const dataset = await datasetRegistry.getDataset(1);
@@ -172,6 +201,9 @@ describe("DatasetRegistry", function () {
       expect(dataset.payloadURI).to.equal(params.payloadURI);
       expect(dataset.weightsRoot).to.equal(params.weightsRoot);
       expect(dataset.totalWeight).to.equal(params.totalWeight);
+      expect(await datasetRegistry.weightsURI(1)).to.equal(params.weightsURI);
+      expect(await datasetRegistry.weightsManifestHash(1)).to.equal(params.weightsManifestHash);
+      expect(await datasetRegistry.nextDatasetId()).to.equal(2);
       expect(dataset.status).to.equal(0);
       expect(dataset.policy.allowCopy).to.equal(params.policy.allowCopy);
       expect(dataset.policy.allowExclusive).to.equal(params.policy.allowExclusive);
@@ -189,6 +221,56 @@ describe("DatasetRegistry", function () {
       expect(await datasetRegistry.weightsInvalidated(1)).to.equal(false);
     });
 
+    it("lets an independent claimant discover and verify the committed Manifest", async function () {
+      const { datasetRegistry, contributor } = await networkHelpers.loadFixture(deployFixture);
+      const registryAddress = await datasetRegistry.getAddress();
+      const chainId = (await ethers.provider.getNetwork()).chainId;
+      const totalWeight = 1_000n;
+      const weightsRoot = keccak256(
+        AbiCoder.defaultAbiCoder().encode(
+          ["address", "uint256"],
+          [contributor.address, totalWeight],
+        ),
+      );
+      const manifest = buildWeightsManifest({
+        datasetId: 1n,
+        chainId,
+        datasetRegistry: registryAddress,
+        totalWeight,
+        weightsRoot,
+        entries: [{ address: contributor.address, weight: totalWeight }],
+        pipelineVersion: "pipeline-v1.0.0",
+        generatedAt: "2026-08-18T00:00:00.000Z",
+        contentDigest: ethers.id("source-content"),
+      });
+      const raw = `${JSON.stringify(manifest, null, 2)}\n`;
+      const uri = "ipfs://committed-weights-manifest";
+      await datasetRegistry.connect(contributor).registerDataset({
+        ...validParams(),
+        weightsRoot,
+        totalWeight,
+        weightsURI: uri,
+        weightsManifestHash: hashWeightsManifest(raw),
+      });
+
+      const dataset = await datasetRegistry.getDataset(1);
+      const verified = await fetchAndValidateWeightsManifest(
+        await datasetRegistry.weightsURI(1),
+        await datasetRegistry.weightsManifestHash(1),
+        {
+          datasetId: 1n,
+          chainId,
+          datasetRegistry: registryAddress,
+          totalWeight: dataset.totalWeight,
+          weightsRoot: dataset.weightsRoot,
+        },
+        async () => raw,
+      );
+      expect(verified.entries[0].address).to.equal(contributor.address);
+      expect(verified.entries[0].weight).to.equal(totalWeight);
+      expect(verified.entries[0].proof).to.deep.equal([]);
+    });
+
     it("uses direct CONTRIBUTOR identity before OPERATOR assignment", async function () {
       const { datasetRegistry, contributorRegistry, admin, operator, secondContributor } =
         await networkHelpers.loadFixture(deployFixture);
@@ -204,7 +286,7 @@ describe("DatasetRegistry", function () {
       await contributorRegistry
         .connect(admin)
         .setOperatorContributor(operator.address, secondContributor.address);
-      await datasetRegistry.connect(operator).registerDataset(validParams());
+      await datasetRegistry.connect(operator).registerDataset(validParams(2n));
       expect((await datasetRegistry.getDataset(2)).contributor).to.equal(operator.address);
     });
 
@@ -255,6 +337,12 @@ describe("DatasetRegistry", function () {
       const weight = validParams();
       weight.totalWeight = 0n;
       cases.push(["InvalidTotalWeight", weight]);
+      const uri = validParams();
+      uri.weightsURI = "";
+      cases.push(["EmptyWeightsURI", uri]);
+      const manifestHash = validParams();
+      manifestHash.weightsManifestHash = ethers.ZeroHash;
+      cases.push(["InvalidWeightsManifestHash", manifestHash]);
       const noSale = validParams();
       noSale.policy.allowCopy = false;
       noSale.policy.allowExclusive = false;
@@ -268,6 +356,11 @@ describe("DatasetRegistry", function () {
           datasetRegistry.connect(contributor).registerDataset(params),
         ).to.be.revertedWithCustomError(datasetRegistry, errorName);
       }
+
+      const wrongId = validParams(2n);
+      await expect(datasetRegistry.connect(contributor).registerDataset(wrongId))
+        .to.be.revertedWithCustomError(datasetRegistry, "UnexpectedDatasetId")
+        .withArgs(2, 1);
     });
 
     it("uses IDs from 1 and rejects unknown records", async function () {
@@ -289,7 +382,7 @@ describe("DatasetRegistry", function () {
 
       const replacementWindow = 2 * DAY;
       await protocolConfig.connect(governance).setChallengeWindow(replacementWindow);
-      await datasetRegistry.connect(contributor).registerDataset(validParams());
+      await datasetRegistry.connect(contributor).registerDataset(validParams(2n));
       const second = await datasetRegistry.getDataset(2);
 
       expect(await datasetRegistry.challengeWindowEndsAt(1)).to.equal(
@@ -381,6 +474,7 @@ describe("DatasetRegistry", function () {
         .registerDataset(copyDisabled);
 
       const exclusiveDisabled = validParams();
+      exclusiveDisabled.expectedDatasetId = 2n;
       exclusiveDisabled.contentHash = ethers.id("exclusive-disabled");
       exclusiveDisabled.policy.allowExclusive = false;
       await deployment.datasetRegistry
@@ -429,8 +523,14 @@ describe("DatasetRegistry", function () {
       await expect(datasetRegistry.connect(admin).resolveChallenge(datasetId, false))
         .to.be.revertedWithCustomError(datasetRegistry, "InvalidChallengeTransition")
         .withArgs(datasetId, 0);
-      await datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("first"));
-      await expect(datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("again")))
+      await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, ethers.id("first"), "ipfs://challenge-first");
+      await expect(
+        datasetRegistry
+          .connect(admin)
+          .recordChallenge(datasetId, ethers.id("again"), "ipfs://challenge-again"),
+      )
         .to.be.revertedWithCustomError(datasetRegistry, "InvalidChallengeTransition")
         .withArgs(datasetId, 1);
       await datasetRegistry.connect(admin).resolveChallenge(datasetId, false);
@@ -445,24 +545,47 @@ describe("DatasetRegistry", function () {
       const evidence = ethers.id("evidence-v1");
 
       await expect(
-        datasetRegistry.connect(outsider).recordChallenge(datasetId, evidence),
+        datasetRegistry.connect(outsider).recordChallenge(datasetId, evidence, "ipfs://evidence"),
       ).to.be.revertedWithCustomError(datasetRegistry, "AccessControlUnauthorizedAccount");
       await expect(
-        datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.ZeroHash),
+        datasetRegistry
+          .connect(admin)
+          .recordChallenge(datasetId, ethers.ZeroHash, "ipfs://evidence"),
       ).to.be.revertedWithCustomError(datasetRegistry, "InvalidEvidenceHash");
+      await expect(
+        datasetRegistry.connect(admin).recordChallenge(datasetId, evidence, ""),
+      ).to.be.revertedWithCustomError(datasetRegistry, "EmptyEvidenceURI");
 
-      await expect(datasetRegistry.connect(admin).recordChallenge(datasetId, evidence))
+      const evidenceURI = "ipfs://challenge-evidence-v1";
+      const tx = await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, evidence, evidenceURI);
+      const receipt = await tx.wait();
+      const block = await ethers.provider.getBlock(receipt!.blockNumber);
+      const dueAt = BigInt(block!.timestamp + 72 * 60 * 60);
+      await expect(tx)
         .to.emit(datasetRegistry, "WeightChallengePending")
-        .withArgs(datasetId, evidence);
+        .withArgs(
+          datasetId,
+          evidence,
+          evidenceURI,
+          await datasetRegistry.CHALLENGE_EVIDENCE_VERSION(),
+          dueAt,
+        );
       expect(await datasetRegistry.challengeStatus(datasetId)).to.equal(1);
       expect(await datasetRegistry.challengeEvidenceHash(datasetId)).to.equal(evidence);
+      expect(await datasetRegistry.challengeEvidenceURI(datasetId)).to.equal(evidenceURI);
+      expect(await datasetRegistry.challengeRecordedAt(datasetId)).to.equal(block!.timestamp);
+      expect(await datasetRegistry.challengeResolutionDueAt(datasetId)).to.equal(dueAt);
     });
 
     it("blocks relisting and sales while Pending, including after the deadline", async function () {
       const { datasetRegistry, marketplace, admin, datasetId } =
         await networkHelpers.loadFixture(registeredFixture);
       await marketplace.markListed(datasetId);
-      await datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("evidence"));
+      await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, ethers.id("evidence"), "ipfs://evidence");
 
       await marketplace.markDelisted(datasetId);
       await expect(marketplace.markListed(datasetId)).to.be.revertedWithCustomError(
@@ -471,7 +594,9 @@ describe("DatasetRegistry", function () {
       );
       await datasetRegistry.connect(admin).resolveChallenge(datasetId, false);
       await marketplace.markListed(datasetId);
-      await datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("second-evidence"));
+      await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, ethers.id("second-evidence"), "ipfs://second-evidence");
       await networkHelpers.time.setNextBlockTimestamp(
         await datasetRegistry.challengeWindowEndsAt(datasetId),
       );
@@ -480,13 +605,29 @@ describe("DatasetRegistry", function () {
         .withArgs(datasetId, 1);
     });
 
+    it("keeps an overdue challenge Pending and permits ADMIN resolution after the SLA", async function () {
+      const { datasetRegistry, admin, datasetId } =
+        await networkHelpers.loadFixture(registeredFixture);
+      await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, ethers.id("overdue"), "ipfs://overdue");
+      const dueAt = await datasetRegistry.challengeResolutionDueAt(datasetId);
+      await networkHelpers.time.setNextBlockTimestamp(dueAt + 1n);
+
+      expect(await datasetRegistry.challengeStatus(datasetId)).to.equal(1);
+      await datasetRegistry.connect(admin).resolveChallenge(datasetId, false);
+      expect(await datasetRegistry.challengeStatus(datasetId)).to.equal(2);
+    });
+
     it("rejects a challenge submitted at the exact deadline", async function () {
       const { datasetRegistry, admin, datasetId } =
         await networkHelpers.loadFixture(registeredFixture);
       const deadline = await datasetRegistry.challengeWindowEndsAt(datasetId);
       await networkHelpers.time.setNextBlockTimestamp(deadline);
 
-      await expect(datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("late")))
+      await expect(
+        datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("late"), "ipfs://late"),
+      )
         .to.be.revertedWithCustomError(datasetRegistry, "ChallengeWindowClosed")
         .withArgs(datasetId, deadline);
     });
@@ -494,13 +635,17 @@ describe("DatasetRegistry", function () {
     it("allows rejection and another timely challenge", async function () {
       const { datasetRegistry, admin, datasetId } =
         await networkHelpers.loadFixture(registeredFixture);
-      await datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("first"));
+      await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, ethers.id("first"), "ipfs://first");
       await expect(datasetRegistry.connect(admin).resolveChallenge(datasetId, false))
         .to.emit(datasetRegistry, "WeightChallengeResolved")
         .withArgs(datasetId, false);
       expect(await datasetRegistry.challengeStatus(datasetId)).to.equal(2);
 
-      await datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("second"));
+      await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, ethers.id("second"), "ipfs://second");
       expect(await datasetRegistry.challengeStatus(datasetId)).to.equal(1);
       expect(await datasetRegistry.challengeEvidenceHash(datasetId)).to.equal(ethers.id("second"));
     });
@@ -509,7 +654,9 @@ describe("DatasetRegistry", function () {
       const { datasetRegistry, marketplace, admin, datasetId } =
         await networkHelpers.loadFixture(registeredFixture);
       await marketplace.markListed(datasetId);
-      await datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("valid-evidence"));
+      await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, ethers.id("valid-evidence"), "ipfs://valid-evidence");
 
       await expect(datasetRegistry.connect(admin).resolveChallenge(datasetId, true))
         .to.emit(datasetRegistry, "WeightChallengeResolved")
@@ -527,7 +674,9 @@ describe("DatasetRegistry", function () {
     it("rolls back an upheld decision if Marketplace invalidation fails", async function () {
       const { datasetRegistry, marketplace, admin, datasetId } =
         await networkHelpers.loadFixture(registeredFixture);
-      await datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("evidence"));
+      await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, ethers.id("evidence"), "ipfs://evidence");
       await marketplace.setRejectInvalidation(true);
 
       await expect(
@@ -542,7 +691,9 @@ describe("DatasetRegistry", function () {
       const { datasetRegistry, protocolConfig, admin, datasetId } =
         await networkHelpers.loadFixture(registeredFixture);
       await protocolConfig.connect(admin).pause();
-      await datasetRegistry.connect(admin).recordChallenge(datasetId, ethers.id("paused-evidence"));
+      await datasetRegistry
+        .connect(admin)
+        .recordChallenge(datasetId, ethers.id("paused-evidence"), "ipfs://paused-evidence");
       await datasetRegistry.connect(admin).resolveChallenge(datasetId, false);
       expect(await datasetRegistry.challengeStatus(datasetId)).to.equal(2);
     });

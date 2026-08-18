@@ -13,15 +13,15 @@
 | --- | --- | ---: |
 | `ContributorRegistry` | Implemented and passing | 10 |
 | `ProtocolConfig` | Implemented and passing | 11 |
-| `DatasetRegistry` | Implemented and passing | 23 |
-| `EntitlementNFT` | Implemented and passing | 12 |
-| `RevenueSplitter` | Implemented, UUPS-tested, and passing | 16 |
-| `Marketplace` | Implemented, UUPS/integration-tested, and passing | 18 |
+| `DatasetRegistry` | Implemented and passing | 26 |
+| `EntitlementNFT` | Implemented and passing | 13 |
+| `RevenueSplitter` | Implemented, UUPS-tested, and passing | 23 |
+| `Marketplace` | Implemented, UUPS/integration-tested, and passing | 22 |
 | `ProtocolTimelock` | Implemented, delay/role/execution-tested, and passing | 10 |
-| Artifact/deployment/network/Merkle/deferred-scope assertions | Passing | 11 |
-| **Total** | **Full regression passing** | **111** |
+| Artifact/deployment/network/Merkle/Manifest/deferred-scope assertions | Passing | 25 |
+| **Total** | **Full regression passing** | **140** |
 
-The deployment and post-deployment verification scripts share the same importable, integration-tested implementation and are TypeScript-checked. Persistent-network identity and rejection branches are directly unit-tested without broadcasting a deployment. Hardhat compilation, formatting, Solidity lint, coverage, gas reporting, and the 111-test regression suite pass. Slither 0.11.5 completes with no high-severity finding; reviewed non-high findings are recorded in `security/SLITHER_REVIEW.md`. Within the confirmed V1 decisions and explicitly deferred scope, the current source has no known mismatch with this development specification. A real persistent-network deployment, production multisig onboarding/wiring transactions, and an independent smart-contract audit remain release gates.
+The deployment and post-deployment verification scripts share the same importable, integration-tested implementation and are TypeScript-checked. Persistent-network identity and rejection branches are directly unit-tested without broadcasting a deployment. An official Safe v1.5.0 Singleton/proxy integration test requires two owner signatures, checks nonce replay rejection, executes all six onboarding/wiring transactions, and then runs full deployment verification; the lightweight `MockSafe` remains only for fast dependency-validation tests. Hardhat compilation, formatting, Solidity lint, coverage, gas reporting, and the 140-test regression suite pass. Slither 0.11.5 completes with no high-severity finding; reviewed non-high findings are recorded in `security/SLITHER_REVIEW.md`. Within the confirmed V1 decisions and explicitly deferred scope, the current source has no known mismatch with this development specification. A real persistent-network deployment, production Safe execution, public challenge-intake/Gateway operations, and an independent smart-contract audit remain release gates.
 
 ## Confirmed V1 decisions
 
@@ -34,12 +34,17 @@ The following choices resolve the source document's open questions or implementa
 | Exclusive-title transferability | Once minted, Exclusive titles use standard ERC-1155 transfer behavior. Before the first Exclusive mint, the computed token ID is not yet a title and zero-value transfer attempts are rejected. This is distinct from the Copy-license decision. |
 | Exclusive secondary transfers | A standard ERC-1155 Exclusive transfer does not collect payment, protocol fees, royalties, or sub-contributor revenue. A protocol-managed secondary marketplace is outside V1. |
 | Pricing scope | V1 supports fixed-price listings only. The contributor sets the price when creating a Copy listing with `listCopy(datasetId, price)` or an Exclusive listing with `listExclusiveFixed(datasetId, price)`. An active listing's price is immutable; changing it requires delisting and creating a new fixed-price listing. |
+| Buyer execution protection | Every purchase supplies the exact listed price expected by the buyer and a transaction deadline. A changed price or `block.timestamp > deadline` reverts before payment. The unprotected one-argument purchase entrypoints do not exist. |
+| Seller fee protection | Each Listing snapshots the current `feeBps` as `maxFeeBps`. A later fee decrease benefits the seller, but a fee increase makes the old Listing unpurchasable until the contributor deliberately delists and relists under the new fee. |
 | Nurture raw-data weight | The Batch Pipeline determines Nurture's raw-data weight under a versioned governance policy, includes Nurture as a Merkle leaf, publishes the leaves, and locks the resulting root at registration. The Main Protocol contains no fixed raw-data-weight ratio. |
 | Challenge window | `ProtocolConfig` provides a configurable `challengeWindow`; V1 does not hard-code a duration. Listings may be created for public review during the window, but purchases and claims are blocked. Anyone may submit evidence off-chain; the ADMIN multisig records and resolves a timely challenge on-chain. An upheld challenge permanently invalidates that Dataset's weights and blocks its listing, purchase, and claim paths. The corrected allocation must be registered as a normal new Dataset. No revenue migration, refund, challenge bond, or on-chain adjudication contract is needed because sales cannot occur before the challenge window closes. |
+| Administrator-mediated challenge | V1 does not implement permissionless on-chain challenges. Anyone submits the versioned public evidence document off-chain; only `ADMIN_ROLE` calls `recordChallenge` and `resolveChallenge`. The record commits both `evidenceURI` and `keccak256(raw evidence bytes)`, stores its timestamp and a fixed 72-hour resolution due time. Intake acknowledgement is an operational 24-hour SLA. An overdue Pending record remains fail-closed and resolvable; it never auto-passes or auto-rejects. |
 | Registration attribution | A CONTRIBUTOR registers for itself. An OPERATOR registers only for the single allowlisted contributor assigned to it in `ContributorRegistry`; `RegisterParams` is not changed to add a contributor argument. |
 | Initial contributor membership | At deployment completion, `NURTURE_CONTRIBUTOR` must be the sole `CONTRIBUTOR_ROLE` member. `ContributorRegistry` uses enumerable access control so post-deployment verification checks the exact role-member count and member address, rather than merely checking that Nurture is included. The ADMIN multisig may expand the allowlist later as the source permits. |
-| Registration validation | Hash/root must be nonzero, sample/payload URIs non-empty, `totalWeight > 0`, at least one sale kind enabled, and `policy.licensesTransferable == false`. Leaf uniqueness and exact weight sum are pipeline/public-audit invariants because leaves are off-chain. |
-| Dataset IDs and unknown records | Dataset IDs are sequential and start at `1`; `0` is invalid. `getDataset` and all state-changing calls revert for an unknown ID, while `priceOf`, `claimable`, and `hasAccess` return `0`, `0`, and `false`; `getListing` returns the normalized inactive record `Listing(datasetId, kind, 0, false)`. |
+| Registration validation | Expected Dataset ID must equal `nextDatasetId`; hash/root/Manifest digest must be nonzero; sample/payload/Manifest URIs must be non-empty; `totalWeight > 0`; at least one sale kind enabled; and `policy.licensesTransferable == false`. Leaf uniqueness and exact weight sum are enforced by the Pipeline/public Manifest validator because leaves are off-chain. |
+| Allocation validation and Dataset isolation | The Pipeline-facing allocation validator rejects zero/duplicate addresses, nonpositive weights, any individual weight above `totalWeight`, and any sum not exactly equal to `totalWeight`. `RevenueSplitter.unclaimedRevenue[datasetId]` caps each Dataset's aggregate claims so a malformed valid root cannot consume another Dataset's funds. Claim also rejects an individual `weight > totalWeight`. |
+| Weights Manifest commitment | Every registration binds the expected sequential Dataset ID, a public `weightsURI`, `keccak256` of the exact Manifest bytes, and `main-protocol.weights-manifest.v1`. The Manifest binds chain ID, Registry, Dataset, hash/tree algorithm, full unique allocation, total/root, proofs, Pipeline version/time, and source-content digest. A claimant can discover it on-chain and use `verify:weights-manifest` without contacting the operator. |
+| Dataset IDs and unknown records | Dataset IDs are sequential and start at `1`; `0` is invalid. `getDataset` and all state-changing calls revert for an unknown ID, while `priceOf`, `claimable`, and `hasAccess` return `0`, `0`, and `false`; `getListing` returns the normalized inactive record `Listing(datasetId, kind, 0, 0, false)`. |
 | Dataset lifecycle | Registration starts at `Draft`; the first listing changes it to `Listed`; removing the last listing changes it to `Delisted`; Exclusive purchase is terminal `ExclusivelySold`; an upheld challenge sets `Delisted` plus a permanent weight-invalidated flag. |
 | Duplicate Copy purchase | A wallet that already has a Copy-token balance for the Dataset cannot buy the same Copy license again. Copy supply remains unlimited across distinct buyer addresses. |
 | True-exclusive listing | When `exclusiveRequiresZeroCopies == true`, an Exclusive listing cannot be created after any Copy sale. The first Copy sale automatically deactivates an already-active Exclusive listing so an ineligible offer is not left visible. |
@@ -47,13 +52,13 @@ The following choices resolve the source document's open questions or implementa
 | `hasAccess` ownership | `EntitlementNFT` exposes `hasAccess(uint256 datasetId, address who)`. It may read Dataset state through `DatasetRegistry`. |
 | Access after an Exclusive sale | After `ExclusivelySold`, only the Exclusive-token holder passes `hasAccess`. Prior Copy holders keep any bytes already delivered, but the Gateway no longer provides re-download or key delivery to them. |
 | Payment token | V1 uses one immutable payment-token address fixed at deployment. Replacing the token requires a new deployment/upgrade and migration plan; an ADMIN config change cannot switch the token under active listings. |
-| Payment-token behavior | V1 supports a standard exact-transfer ERC-20 stablecoin only. Fee-on-transfer, rebasing, and callback-bearing token behaviors are unsupported. |
+| Payment-token behavior | V1 supports a standard exact-transfer ERC-20 stablecoin only. Purchase ingress and claim/treasury egress verify exact balance deltas. Every payout verifies aggregate backing first, so a negative rebase fails closed. Fee-on-transfer, rebasing, blacklist, and callback-bearing token behaviors remain unsupported and require deployment review. |
 | Gateway signer config | `gatewaySigner` stores only the Gateway's public signer address/identity. No private key or decryption key is ever stored on-chain, and this signer cannot mint entitlements or override `hasAccess`. |
-| Division dust | Integer-division dust remains in `RevenueSplitter` in V1. It has no ADMIN sweep path and remains available to future claims as cumulative revenue grows. |
+| Division dust and token recovery | Integer-division dust remains recorded in `contributorBalance` and cannot be swept. The Timelock-only `rescueToken` may recover unrelated ERC-20s and only payment-token balance strictly above `treasuryBalance + contributorBalance`; it cannot consume contributor, treasury, or dust liabilities. |
 | KYC hook | Buyers are permissionless in V1. The source document's optional KYC hook is deferred and must not be added without a new product decision. |
 | Pause behavior | Pause stops registration, listing/relisting, purchases, and claims. Reads, `claimable`, delisting, challenge recording/resolution, treasury withdrawal, and pause recovery remain available. |
-| Pending-challenge liveness | A Pending challenge has no automatic timeout in V1; it fails closed until ADMIN resolves it. The ADMIN multisig must operate a published resolution SLA. |
-| Dependency wiring | Non-upgradeable contracts and `RevenueSplitter` receive the Marketplace proxy through an ADMIN-only `setMarketplaceOnce` operation. It rejects zero and cannot be repeated. Registration and market operations remain disabled until wiring is complete. |
+| Pending-challenge liveness | A Pending challenge has no automatic state transition; it fails closed until ADMIN resolves it. `challengeResolutionDueAt` publishes a fixed 72-hour adjudication SLA, while overdue resolution remains possible and triggers operational escalation. |
+| Dependency wiring | Non-upgradeable contracts and `RevenueSplitter` receive the Marketplace proxy through an ADMIN-only `setMarketplaceOnce` operation. It rejects zero, code without the required binding view, and a Marketplace whose reverse `datasetRegistry`, `entitlementNFT`, or `revenueSplitter` binding does not equal the receiving contract. Wiring cannot be repeated. Registration and market operations remain disabled until wiring is complete. |
 | Governance delay and authority lock | Production config changes and UUPS upgrades use the non-upgradeable `ProtocolTimelock`, an OpenZeppelin `TimelockController` with a fixed 48-hour minimum delay. Governance may increase the delay but `updateDelay` cannot reduce it below 48 hours. The operational multisig is proposer, executor, and canceller; the Timelock is permanently self-administered and is the core contracts' sole, fixed `DEFAULT_ADMIN_ROLE` holder. Neither the Timelock nor a core contract can grant that role to another address or revoke/renounce it from the Timelock. Configuration setters and UUPS authorization compare the caller directly with the stored Timelock address, so transferring a role cannot create a delay bypass. Emergency pause and challenge operations remain immediate multisig actions through `ADMIN_ROLE`. |
 | Upgradeability | Only `Marketplace` and `RevenueSplitter` use UUPS proxies. `ContributorRegistry`, `DatasetRegistry`, `EntitlementNFT`, `ProtocolConfig`, and the governance-infrastructure `ProtocolTimelock` are non-upgradeable V1 contracts; mutable configuration and role management occur through their documented state and roles. |
 | Production dependency pinning | Persistent deployments pin `EXPECTED_CHAIN_ID`, the payment token's runtime code hash and decimals, and a Safe-compatible operational multisig's runtime code hash, exact owner set, and threshold. Deployment and verification both probe the required read interfaces. These checks prove the reviewed identities/configuration, while the operator remains responsible for selecting a reviewed exact-transfer, non-rebasing stablecoin implementation. |
@@ -89,7 +94,7 @@ The Crowdsourcing Protocol and the Main Protocol do not call each other directly
 | Name | Required responsibility |
 | --- | --- |
 | `ContributorRegistry` | Allowlist and roles: admin, operator/pipeline, contributor. Gates `registerDataset` during the clean start and maps each operator to the contributor it may represent. |
-| `DatasetRegistry` | Creates and stores `Dataset` records; holds sample/payload pointers, content hash, weights root, per-Dataset challenge deadline/status, and permanent weight-invalidation state. |
+| `DatasetRegistry` | Creates and stores `Dataset` records; holds sample/payload pointers, content hash, weights root, public Manifest commitment, administrator-mediated challenge evidence/deadline/status, and permanent weight-invalidation state. |
 | `Marketplace` | Listings, `buyCopy`, `buyExclusive`, exclusivity state machine, fee handling, and settlement calls. |
 | `EntitlementNFT` | ERC-1155 copy licenses and exclusive titles; supplies the `hasAccess()` view used by the gateway. |
 | `RevenueSplitter` | Per-dataset revenue accrual and Merkle-proof claims by sub-contributors. |
@@ -206,6 +211,7 @@ struct Listing {
     uint256 datasetId;
     SaleKind kind;
     uint256 price;
+    uint16 maxFeeBps;
     bool active;
 }
 
@@ -226,11 +232,14 @@ The source-defined `PricingType.Auction`, `Auction` model, and `auctionId` field
 ```solidity
 interface IDatasetRegistry {
     struct RegisterParams {
+        uint256 expectedDatasetId;
         bytes32 contentHash;
         string  sampleURI;
         string  payloadURI;
         bytes32 weightsRoot;
         uint256 totalWeight;
+        string  weightsURI;
+        bytes32 weightsManifestHash;
         SalePolicy policy;
         string  tag;
     }
@@ -243,6 +252,11 @@ interface IDatasetRegistry {
         external
         view
         returns (Dataset memory);
+
+    function nextDatasetId() external view returns (uint256);
+    function weightsURI(uint256 datasetId) external view returns (string memory);
+    function weightsManifestHash(uint256 datasetId) external view returns (bytes32);
+    function WEIGHTS_MANIFEST_VERSION() external view returns (bytes32);
 
     function challengeWindowEndsAt(uint256 datasetId)
         external
@@ -259,14 +273,21 @@ interface IDatasetRegistry {
         view
         returns (bytes32);
 
+    function challengeEvidenceURI(uint256 datasetId) external view returns (string memory);
+    function challengeRecordedAt(uint256 datasetId) external view returns (uint256);
+    function challengeResolutionDueAt(uint256 datasetId) external view returns (uint256);
+
     function weightsInvalidated(uint256 datasetId)
         external
         view
         returns (bool);
 
     // ADMIN multisig only; evidence is submitted and reviewed off-chain.
-    function recordChallenge(uint256 datasetId, bytes32 evidenceHash)
-        external;
+    function recordChallenge(
+        uint256 datasetId,
+        bytes32 evidenceHash,
+        string calldata evidenceURI
+    ) external;
 
     // ADMIN multisig only.
     function resolveChallenge(uint256 datasetId, bool upheld)
@@ -280,7 +301,7 @@ interface IDatasetRegistry {
 }
 ```
 
-`registerDataset` is limited to allowlisted contributors in the clean start (Nurture) and assigned operators. If an address has the CONTRIBUTOR role, direct-contributor behavior takes precedence and `Dataset.contributor = msg.sender`, even if that address also has OPERATOR. Otherwise, an OPERATOR registers for the allowlisted contributor assigned to it in `ContributorRegistry`; an operator cannot select or impersonate another contributor. This preserves the source `RegisterParams` shape, which does not contain a contributor argument.
+`registerDataset` is limited to allowlisted contributors in the clean start (Nurture) and assigned operators. If an address has the CONTRIBUTOR role, direct-contributor behavior takes precedence and `Dataset.contributor = msg.sender`, even if that address also has OPERATOR. Otherwise, an OPERATOR registers for the allowlisted contributor assigned to it in `ContributorRegistry`; an operator cannot select or impersonate another contributor. `RegisterParams` still contains no contributor argument, but V1 adds `expectedDatasetId`, `weightsURI`, and `weightsManifestHash` as the recorded security decision needed to bind a discoverable Manifest to the exact chain registration.
 
 ### `IMarketplace`
 
@@ -292,8 +313,17 @@ interface IMarketplace {
     function delist(uint256 datasetId, SaleKind kind) external;
 
     // Purchase (buyer)
-    function buyCopy(uint256 datasetId) external;
-    function buyExclusive(uint256 datasetId) external;
+    function buyCopy(
+        uint256 datasetId,
+        uint256 expectedPrice,
+        uint256 deadline
+    ) external;
+
+    function buyExclusive(
+        uint256 datasetId,
+        uint256 expectedPrice,
+        uint256 deadline
+    ) external;
 
     // Views
     function priceOf(uint256 datasetId, SaleKind kind)
@@ -311,11 +341,11 @@ interface IMarketplace {
 }
 ```
 
-`buyCopy` and `buyExclusive` assume the buyer has approved the Marketplace proxy as payment-token spender first. Both are fixed-price purchase flows. The Dataset registration interface does not contain a price; price is set when the contributor creates the listing.
+`buyCopy` and `buyExclusive` assume the buyer has approved the Marketplace proxy as payment-token spender first. Both are fixed-price purchase flows. `expectedPrice` must equal the active Listing price exactly, and execution requires `block.timestamp <= deadline`; these buyer commitments prevent a delist/relist price change or delayed transaction from spending an unintended allowance. The Dataset registration interface does not contain a price; price is set when the contributor creates the listing.
 
-For both listing functions, `price > 0` is required. A Copy listing and an Exclusive listing may coexist. An active listing's price cannot be edited in place; the contributor changes it by calling `delist` and then creating a new listing.
+For both listing functions, `price > 0` is required. A Copy listing and an Exclusive listing may coexist. An active listing's price cannot be edited in place; the contributor changes it by calling `delist` and then creating a new listing. Listing creation snapshots `ProtocolConfig.feeBps` into `maxFeeBps`. Purchase fails if the current fee is greater than that snapshot, so accepting a higher fee requires deliberate delist/relist; a lower current fee applies normally.
 
-`priceOf(datasetId, kind)` returns the active fixed price, or `0` when that listing is inactive or does not exist. `getListing(datasetId, kind)` returns the complete fixed-listing record and is part of `IMarketplace`; when no listing has ever existed for that pair, including an unknown Dataset ID, it returns `Listing(datasetId, kind, 0, false)` rather than an all-zero record with the wrong identity fields. Listing creation emits `CopyListed` or `ExclusiveListed`; successful delisting requires an active listing and emits `ListingDelisted`.
+`priceOf(datasetId, kind)` returns the active fixed price, or `0` when that listing is inactive or does not exist. `getListing(datasetId, kind)` returns the complete fixed-listing record and is part of `IMarketplace`; when no listing has ever existed for that pair, including an unknown Dataset ID, it returns `Listing(datasetId, kind, 0, 0, false)` rather than an all-zero record with the wrong identity fields. Listing creation emits `CopyListed(datasetId, price, maxFeeBps)` or `ExclusiveListed(datasetId, price, maxFeeBps)`; successful delisting requires an active listing and emits `ListingDelisted`.
 
 `invalidateListings` is not a public ADMIN shortcut. It is callable only by `DatasetRegistry` during an upheld-challenge transition, deactivates both listing kinds atomically, and emits `ListingDelisted` once for each listing that was active.
 
@@ -338,10 +368,13 @@ interface IRevenueSplitter {
 
     // Sends the full recorded treasury balance only to ProtocolConfig.treasury().
     function withdrawTreasury() external returns (uint256 amount);
+
+    // Timelock only; payment-token rescue is capped to balance above all liabilities.
+    function rescueToken(address token, address recipient, uint256 amount) external;
 }
 ```
 
-The source sketch names the settlement operation `_accrue`, but a Solidity `internal` function cannot be called across the separate `Marketplace` and `RevenueSplitter` contracts. V1 therefore exposes the integration entrypoint as `accrue`, restricts it to the Marketplace proxy, and keeps the fee calculation/accounting logic inside `RevenueSplitter`. `withdrawTreasury` may be called by anyone, but it can send funds only to the configured treasury address.
+The source sketch names the settlement operation `_accrue`, but a Solidity `internal` function cannot be called across the separate `Marketplace` and `RevenueSplitter` contracts. V1 therefore exposes the integration entrypoint as `accrue`, restricts it to the Marketplace proxy, and keeps the fee calculation/accounting logic inside `RevenueSplitter`. `withdrawTreasury` may be called by anyone, but it can send funds only to the configured treasury address. `rescueToken` is restricted directly to the governance Timelock; for the configured payment token it can transfer only balance above `treasuryBalance + contributorBalance`.
 
 ### Required access query
 
@@ -365,7 +398,7 @@ Copy-token transfers are rejected for both single and batch ERC-1155 transfer pa
 - `Marketplace.invalidateListings` is callable only by `DatasetRegistry` and exists solely to complete an upheld-challenge transition.
 - `EntitlementNFT.mint(to, datasetId, kind)` is callable only by the Marketplace proxy and always mints exactly one internally derived `tokenId(datasetId, kind)`. Accepting `datasetId` and `kind` instead of an opaque token ID lets the NFT enforce Copy non-transferability and Exclusive uniqueness. No public mint or Copy burn path exists.
 - `RevenueSplitter.accrue` is callable only by the Marketplace proxy. `claim` remains permissionless for a valid Merkle leaf/proof.
-- `DatasetRegistry`, `EntitlementNFT`, and `RevenueSplitter` each expose `setMarketplaceOnce(address marketplace)`. It requires ADMIN, rejects zero, and permanently closes after storing the Marketplace proxy. Their protected state-changing operations reject calls until this wiring is complete.
+- `DatasetRegistry`, `EntitlementNFT`, and `RevenueSplitter` each expose `setMarketplaceOnce(address marketplace)`. It requires ADMIN, rejects zero, verifies the corresponding reverse Marketplace dependency points to the receiving contract, and permanently closes after storing the Marketplace proxy. Their protected state-changing operations reject calls until this wiring is complete.
 - Proxy-address authorizations point to the stable proxy addresses, not implementation addresses.
 
 The token ID derivation is fixed for every contract, indexer, and Gateway integration:
@@ -385,12 +418,13 @@ uint256 tokenId = uint256(keccak256(abi.encode(datasetId, kind)));
 5. The Dataset stores its `contentHash`, `weightsRoot`, `totalWeight`, and contributor-declared `SalePolicy`, starts with `status = Draft`, and snapshots `challengeWindowEndsAt = block.timestamp + ProtocolConfig.challengeWindow`.
 6. Set `challengeStatus = None`, `weightsInvalidated = false`, and emit `DatasetRegistered`.
 
-The leaf set must contain at most one leaf per address and its weights must sum exactly to `totalWeight`. Because only the Merkle root is stored on-chain, the Batch Pipeline validates these conditions before registration and publishes the complete leaf set for public recomputation and challenge.
+The leaf set must contain at most one nonzero-address leaf per address; every weight must be positive and no greater than `totalWeight`; and its weights must sum exactly to `totalWeight`. The deterministic tree sorts leaf hashes, hashes each sibling pair in sorted order, and promotes an unpaired node unchanged. Because only the Merkle root is stored on-chain, the Batch Pipeline must run `validate-merkle-allocation.ts` before registration and publish the complete validated leaf set for public recomputation and challenge. Main Protocol additionally caps aggregate claims to `unclaimedRevenue[datasetId]`, limiting any malformed root to its own Dataset balance.
 
 ### Listing rules and Dataset lifecycle
 
 - Only `Dataset.contributor` may create or delist that Dataset's listings.
 - `listCopy` requires `policy.allowCopy`; `listExclusiveFixed` requires `policy.allowExclusive`; both require `price > 0` and no active listing of the same `SaleKind`.
+- Listing creation snapshots the current protocol fee as `maxFeeBps`; purchase fails after a fee increase until the contributor relists and explicitly accepts it.
 - If `exclusiveRequiresZeroCopies == true`, `listExclusiveFixed` additionally requires `copiesSold == 0`.
 - A listing may be created during the challenge window so its price and Dataset metadata can be reviewed, but no purchase may complete before the window closes.
 - While `challengeStatus == Pending`, new listings and relisting are blocked, but the contributor may delist. After `Upheld`, listing and relisting are permanently blocked.
@@ -404,14 +438,15 @@ The leaf set must contain at most one leaf per address and its weights must sum 
 The following sequence is required:
 
 1. Require `status == Listed`, `policy.allowCopy`, and an active Copy listing.
-2. Require `block.timestamp >= challengeWindowEndsAt`, `challengeStatus` is `None` or `Rejected`, and `weightsInvalidated == false`.
-3. Require the buyer's Copy-token balance for this Dataset to be zero, preventing an accidental duplicate purchase of the same non-transferable access right.
-4. Use `SafeERC20.safeTransferFrom` to pull the listed payment-token price from the buyer directly into `RevenueSplitter`, and require its token-balance increase to equal `price` exactly.
-5. Call `RevenueSplitter.accrue(datasetId, price)`; it deducts the protocol fee in accounting.
-6. Mint `EntitlementNFT.mint(buyer, datasetId, Copy)`; the NFT derives the token ID and amount `1` internally.
-7. Increment `copiesSold` through `DatasetRegistry.recordCopySale`.
-8. If `exclusiveRequiresZeroCopies == true`, deactivate any active Exclusive listing and emit `ListingDelisted(datasetId, Exclusive)`.
-9. Emit `CopyPurchased(datasetId, buyer, price)`.
+2. Require `listing.price == expectedPrice`, `block.timestamp <= deadline`, and current `feeBps <= listing.maxFeeBps`.
+3. Require `block.timestamp >= challengeWindowEndsAt`, `challengeStatus` is `None` or `Rejected`, and `weightsInvalidated == false`.
+4. Require the buyer's Copy-token balance for this Dataset to be zero, preventing an accidental duplicate purchase of the same non-transferable access right.
+5. Use `SafeERC20.safeTransferFrom` to pull the listed payment-token price from the buyer directly into `RevenueSplitter`, and require its token-balance increase to equal `price` exactly.
+6. Call `RevenueSplitter.accrue(datasetId, price)`; it deducts the protocol fee in accounting.
+7. Mint `EntitlementNFT.mint(buyer, datasetId, Copy)`; the NFT derives the token ID and amount `1` internally.
+8. Increment `copiesSold` through `DatasetRegistry.recordCopySale`.
+9. If `exclusiveRequiresZeroCopies == true`, deactivate any active Exclusive listing and emit `ListingDelisted(datasetId, Exclusive)`.
+10. Emit `CopyPurchased(datasetId, buyer, price)`.
 
 Copies are non-exclusive and unlimited while the Dataset remains eligible for Copy sales.
 
@@ -420,13 +455,14 @@ Copies are non-exclusive and unlimited while the Dataset remains eligible for Co
 The fixed-price Exclusive state machine is:
 
 1. Require `status == Listed`, `policy.allowExclusive`, and an active Exclusive listing.
-2. Require `block.timestamp >= challengeWindowEndsAt`, `challengeStatus` is `None` or `Rejected`, and `weightsInvalidated == false`.
-3. If `policy.exclusiveRequiresZeroCopies`, require `copiesSold == 0`.
-4. Use `SafeERC20.safeTransferFrom` to pull the price directly into `RevenueSplitter`, require its token-balance increase to equal `price` exactly, then call `RevenueSplitter.accrue(datasetId, price)`.
-5. Set `status = ExclusivelySold` through `DatasetRegistry.recordExclusiveSale`.
-6. Deactivate all listings for the Dataset.
-7. Mint `EntitlementNFT.mint(buyer, datasetId, Exclusive)`; the NFT derives the token ID and amount `1` internally.
-8. Emit `ExclusivePurchased(datasetId, buyer, price)`.
+2. Require `listing.price == expectedPrice`, `block.timestamp <= deadline`, and current `feeBps <= listing.maxFeeBps`.
+3. Require `block.timestamp >= challengeWindowEndsAt`, `challengeStatus` is `None` or `Rejected`, and `weightsInvalidated == false`.
+4. If `policy.exclusiveRequiresZeroCopies`, require `copiesSold == 0`.
+5. Use `SafeERC20.safeTransferFrom` to pull the price directly into `RevenueSplitter`, require its token-balance increase to equal `price` exactly, then call `RevenueSplitter.accrue(datasetId, price)`.
+6. Set `status = ExclusivelySold` through `DatasetRegistry.recordExclusiveSale`.
+7. Deactivate all listings for the Dataset.
+8. Mint `EntitlementNFT.mint(buyer, datasetId, Exclusive)`; the NFT derives the token ID and amount `1` internally.
+9. Emit `ExclusivePurchased(datasetId, buyer, price)`.
 
 After `ExclusivelySold`, the on-chain state machine permits no new Copy sales, no new Exclusive sales, and no new entitlements. It cannot revoke bytes previously delivered to Copy buyers. This distinction must be stated honestly to buyers.
 
@@ -439,6 +475,7 @@ fee = gross * feeBps / 10_000
 net = gross - fee
 treasuryBalance += fee
 cumulativeRevenue[datasetId] += net
+unclaimedRevenue[datasetId] += net
 ```
 
 For a sub-contributor claim:
@@ -455,12 +492,13 @@ Claim requirements:
 
 1. Require `block.timestamp >= challengeWindowEndsAt`, `challengeStatus` is `None` or `Rejected`, and `weightsInvalidated == false`.
 2. Verify `MerkleProof.verify(proof, dataset.weightsRoot, leaf)`.
-3. Require `owed > 0`.
-4. Increase `claimed[datasetId][msg.sender]` by `owed`.
-5. Transfer `owed` in the configured payment token.
-6. Emit `RevenueClaimed(datasetId, msg.sender, owed)`.
+3. Require `weight <= dataset.totalWeight` and `owed > 0`.
+4. Require `owed <= unclaimedRevenue[datasetId]`, preventing cross-Dataset liability consumption even if a malformed root's valid leaves sum above `totalWeight`.
+5. Increase `claimed[datasetId][msg.sender]` by `owed` and decrease both `unclaimedRevenue[datasetId]` and aggregate `contributorBalance` by `owed`.
+6. Require aggregate payment-token backing, transfer `owed`, and verify the claimant's balance increased by exactly `owed`.
+7. Emit `RevenueClaimed(datasetId, msg.sender, owed)`.
 
-`cumulativeRevenue` only increases. Claims are pull-based and do not iterate across the contributor set, preserving O(1) cost per sale and per claim. Nurture is one leaf, weighted for raw-sensor-data contribution; labelers are the other leaves. The Batch Pipeline publishes the full `(address, weight)` list and proofs off-chain through IPFS, DA, or CDN; only the root is on-chain.
+`cumulativeRevenue` only increases. Claims are pull-based and do not iterate across the contributor set, preserving O(1) cost per sale and per claim. Nurture is one leaf, weighted for raw-sensor-data contribution; labelers are the other leaves. The Batch Pipeline publishes the full `(address, weight)` list and proofs through IPFS, Arweave, DA, or another durable public store. The chain stores the root plus the public Manifest URI, exact-byte digest, and schema/hash version commitment.
 
 Merkle leaves use the source-defined encoding `keccak256(abi.encode(subContributor, weight))`. Tree construction and proof generation use sorted sibling-pair hashing compatible with OpenZeppelin `MerkleProof`; the pipeline and contracts must use the same algorithm and test vectors.
 
@@ -468,7 +506,7 @@ Merkle leaves use the source-defined encoding `keccak256(abi.encode(subContribut
 
 Because `claimable` has no proof parameter, it is an arithmetic preview only: it does not prove that `(who, weight)` is present in the Merkle tree. Only `claim` establishes membership and can transfer funds. For an unknown Dataset, `claimable` and `hasAccess` return `0`/`false`; state-changing functions revert.
 
-`treasuryBalance` may be withdrawn independently of contributor claims. `withdrawTreasury` requires a nonzero recorded balance, first clears it, and then transfers that amount to the current nonzero treasury address, emitting `TreasuryWithdrawn`. It cannot withdraw contributor revenue or rounding dust. The payment token must be an exact-transfer ERC-20; fee-on-transfer, rebasing, and callback-bearing tokens are unsupported.
+`treasuryBalance` may be withdrawn independently of contributor claims. `withdrawTreasury` requires a nonzero recorded balance and full aggregate backing, first clears it, and then transfers that amount to the current nonzero treasury address while verifying exact receipt, emitting `TreasuryWithdrawn`. It cannot withdraw contributor revenue or rounding dust. Timelock-only token rescue can recover unrelated tokens and true payment-token surplus, but payment-token liabilities are untouchable. The payment token must be an exact-transfer ERC-20; fee-on-transfer, rebasing, blacklist, and callback-bearing tokens are unsupported.
 
 ### Challenge window and successful-challenge handling
 
@@ -480,6 +518,9 @@ Per-Dataset challenge data is stored separately so the source-defined `Dataset` 
 mapping(uint256 => uint256) public challengeWindowEndsAt;
 mapping(uint256 => ChallengeStatus) public challengeStatus;
 mapping(uint256 => bytes32) public challengeEvidenceHash;
+mapping(uint256 => string) public challengeEvidenceURI;
+mapping(uint256 => uint256) public challengeRecordedAt;
+mapping(uint256 => uint256) public challengeResolutionDueAt;
 mapping(uint256 => bool) public weightsInvalidated;
 ```
 
@@ -487,7 +528,7 @@ The required state machine is:
 
 1. Registration sets the deadline, `challengeStatus = None`, and `weightsInvalidated = false`.
 2. Listings may be created during the review window, but `buyCopy`, `buyExclusive`, and `claim` are blocked until `block.timestamp >= challengeWindowEndsAt`.
-3. Anyone may submit evidence through the published off-chain dispute channel. Before the deadline, the ADMIN multisig may call `recordChallenge(datasetId, evidenceHash)`, changing `None` or `Rejected` to `Pending` and storing the latest evidence hash. `evidenceHash` must be nonzero. A late challenge cannot be recorded through this V1 path. Earlier hashes remain discoverable through events if a rejected challenge is followed by another timely challenge.
+3. Anyone may submit a public document matching `schemas/weight-challenge-evidence-v1.schema.json` through `POST /v1/datasets/{datasetId}/challenges`. The service acknowledges a valid submission within 24 hours and escalates immediately as the review deadline approaches. Before the deadline, only the ADMIN multisig may call `recordChallenge(datasetId, evidenceHash, evidenceURI)`, changing `None` or `Rejected` to `Pending`. Both values must be nonempty; `evidenceHash = keccak256(raw evidence bytes)`. The call stores `challengeRecordedAt` and `challengeResolutionDueAt = challengeRecordedAt + 72 hours`. A late challenge cannot be recorded through this V1 path. Earlier records remain discoverable through events.
 4. While `Pending`, purchases, claims, and new/relisted listings remain blocked regardless of the deadline. Contributor delisting and ADMIN resolution remain available.
 5. `resolveChallenge(datasetId, false)` changes `Pending` to `Rejected`. Purchases and claims are then allowed only after the original deadline has passed.
 6. `resolveChallenge(datasetId, true)` changes `Pending` to `Upheld`, sets `weightsInvalidated = true`, calls `Marketplace.invalidateListings(datasetId)`, and sets the Dataset to `Delisted` in the same transaction. Listing, relisting, purchase, and claim paths for that Dataset are permanently blocked.
@@ -495,7 +536,7 @@ The required state machine is:
 
 Because no purchase can occur before the review window closes and a pending challenge blocks purchases, an upheld challenge has no accumulated sale revenue or buyer entitlements to migrate or refund. Challenge adjudication, operator stake, and slashing remain off-chain and controlled by the ADMIN multisig in V1. This centralized trust assumption must be disclosed operationally.
 
-A Pending challenge does not expire automatically. This fail-closed rule avoids silently approving a disputed allocation, but it creates an ADMIN liveness dependency; the operating policy must publish and monitor a resolution SLA.
+A Pending challenge does not expire automatically. This fail-closed rule avoids silently approving a disputed allocation, but it creates an ADMIN liveness dependency. The 72-hour due time is observable on-chain; overdue records remain blocked and resolvable while monitoring publishes the SLA breach and escalates it to governance.
 
 ## Access control and data delivery
 
@@ -534,7 +575,10 @@ event DatasetRegistered(
     address indexed contributor,
     bytes32 contentHash,
     bytes32 weightsRoot,
-    uint256 totalWeight
+    uint256 totalWeight,
+    string weightsURI,
+    bytes32 weightsManifestHash,
+    bytes32 weightsManifestVersion
 );
 
 event CopyPurchased(
@@ -559,13 +603,16 @@ event RevenueClaimed(
 V1 additionally requires events for every listing and challenge state transition so indexers do not need to infer mutable state:
 
 ```solidity
-event CopyListed(uint256 indexed datasetId, uint256 price);
-event ExclusiveListed(uint256 indexed datasetId, uint256 price);
+event CopyListed(uint256 indexed datasetId, uint256 price, uint16 maxFeeBps);
+event ExclusiveListed(uint256 indexed datasetId, uint256 price, uint16 maxFeeBps);
 event ListingDelisted(uint256 indexed datasetId, SaleKind kind);
 
 event WeightChallengePending(
     uint256 indexed datasetId,
-    bytes32 indexed evidenceHash
+    bytes32 indexed evidenceHash,
+    string evidenceURI,
+    bytes32 evidenceVersion,
+    uint256 resolutionDueAt
 );
 
 event WeightChallengeResolved(
@@ -575,6 +622,12 @@ event WeightChallengeResolved(
 
 event TreasuryWithdrawn(
     address indexed treasury,
+    uint256 amount
+);
+
+event TokenRescued(
+    address indexed token,
+    address indexed recipient,
     uint256 amount
 );
 
@@ -598,7 +651,7 @@ event GatewaySignerUpdated(address indexed previousSigner, address indexed newSi
 event MarketplaceWired(address indexed marketplace);
 ```
 
-The first four events are source-defined Main Protocol events. All later events are explicit V1 additions needed to expose the resolved listing, challenge, fee/configuration, operator-assignment, and one-time-wiring state transitions. `RoleGranted`, `RoleRevoked`, `Paused`, `Unpaused`, and UUPS upgrade events use their standard OpenZeppelin definitions.
+The four event names are source-defined Main Protocol events. The fixed-price V1 Manifest security decision extends `DatasetRegistered`; the challenge decision extends `WeightChallengePending`. All later events are explicit V1 additions needed to expose the resolved listing, challenge, fee/configuration, operator-assignment, and one-time-wiring state transitions. `RoleGranted`, `RoleRevoked`, `Paused`, `Unpaused`, and UUPS upgrade events use their standard OpenZeppelin definitions.
 
 `Participated`, `EpochClosed`, and `BatchPackaged` are Crowdsourcing Protocol events and are excluded from the current contract scope.
 
@@ -610,7 +663,7 @@ The first four events are source-defined Main Protocol events. All later events 
 - Keep operator keys in an HSM or multisig. The longer-term roadmap is decentralizing the pipeline through an EigenLayer AVS.
 - Use a deployment-fixed nonzero stablecoin address (USDC is the example), configurable `feeBps`, and configurable nonzero treasury in `ProtocolConfig`; require `feeBps <= 10_000` and `challengeWindow > 0`.
 - Before deploying or verifying, require an exact `EXPECTED_CHAIN_ID` match and, on persistent networks, the canonical named-network mapping (`baseSepolia=84532`, `base=8453`, `arbitrum=42161`, `optimism=10`); pin and verify the payment token runtime code hash and decimals; probe `totalSupply`, `balanceOf`, `allowance`, and `decimals`; and verify the reviewed Safe-compatible ADMIN multisig runtime code hash, exact owner set, and threshold. Code/interface checks do not replace external review of the selected stablecoin's exact-transfer and upgrade behavior.
-- Production configuration changes and UUPS upgrades use a 48-hour governance timelock. A `feeBps` change affects only future purchases. A treasury-address change affects every later `withdrawTreasury`, including fees already accrued but not yet withdrawn. A `challengeWindow` change affects only Datasets registered after that change because each Dataset snapshots its deadline at registration.
+- Production configuration changes and UUPS upgrades use a 48-hour governance timelock. A `feeBps` decrease applies to later purchases; an increase cannot apply to an existing Listing whose `maxFeeBps` snapshot is lower and requires seller relisting. A treasury-address change affects every later `withdrawTreasury`, including fees already accrued but not yet withdrawn. A `challengeWindow` change affects only Datasets registered after that change because each Dataset snapshots its deadline at registration.
 - Pause blocks `registerDataset`, new listings/relisting, `buyCopy`, `buyExclusive`, and `claim`. Read methods, `claimable`, contributor `delist`, challenge recording/resolution, `withdrawTreasury`, and ADMIN pause/unpause remain available so the protocol can reduce risk and resolve incidents while paused.
 - `Marketplace` and `RevenueSplitter` use UUPS proxies; `_authorizeUpgrade` accepts only the fixed stored governance-Timelock address. The Timelock remains its own sole `DEFAULT_ADMIN_ROLE` holder, and all six governed core contracts permanently bind that role to the same Timelock. All seven contracts reject attempts to grant the role elsewhere or revoke/renounce it from the Timelock.
 - `EntitlementNFT` and Dataset records are immutable-by-default.
@@ -622,7 +675,7 @@ The first four events are source-defined Main Protocol events. All later events 
 - `Marketplace` may list during the challenge window, but both purchase methods and `RevenueSplitter.claim` must remain blocked until the window closes and any timely challenge is resolved.
 - `DatasetRegistry` must provide no mutation path for `weightsRoot` or `totalWeight` after `registerDataset`.
 - `EntitlementNFT` must reject transfer operations for Copy-token IDs. An Exclusive token ID becomes a transferable standard ERC-1155 title when it is minted; before that mint, zero-value transfer attempts for the computed ID are rejected.
-- The operational evidence-review and adjudication process is outside the V1 contract set. `DatasetRegistry` records only the challenge evidence hash, status, and ADMIN decision.
+- The operational evidence-review and adjudication process is outside the V1 contract set. `DatasetRegistry` records the public evidence URI and digest, record/due timestamps, status, and ADMIN decision; it does not verify the dispute facts on-chain.
 - An upheld challenge permanently invalidates the old Dataset's weights. Corrected weights require a normal new Dataset registration and a new challenge window; there is no settlement-only Dataset or revenue migration path.
 - The immutable V1 payment token must be used consistently by `Marketplace` and `RevenueSplitter`; ADMIN cannot replace it in place.
 - Any future on-chain bond, stake, dispute, or slashing mechanism is a separately scoped protocol extension and must not be silently added to V1.
@@ -633,11 +686,11 @@ The first four events are source-defined Main Protocol events. All later events 
 | --- | --- | --- |
 | Dataset, `SalePolicy`, statuses, and entitlement model | Part 2.1 | Names and source fields preserved. Challenge state is stored separately. V1 omits deferred auction-only listing fields. |
 | Contract names and responsibilities | Part 2.2 | Source names preserved. Challenge storage and operator assignment are V1 additions needed to resolve open mechanics. |
-| Registration and fixed-price market functions | Part 2.3 | Source function names/signatures preserved for `registerDataset`, fixed listing, purchase, delist, and price views. Auction entrypoints are intentionally deferred by product decision. |
+| Registration and fixed-price market functions | Part 2.3 | Source function names are preserved. `RegisterParams` is extended with expected Dataset ID and Manifest commitments, and purchases add price/deadline protection as explicit V1 security decisions. Auction entrypoints are intentionally deferred by product decision. |
 | Copy and Exclusive purchase state machines | Part 2.3 and Part 2.6 | Source ordering and exclusivity rules preserved; challenge gates, duplicate-Copy prevention, and cross-contract integration entrypoints are explicit V1 completion rules. |
 | Revenue formula and Merkle claims | Part 2.4 | Source formulas and leaf encoding preserved. `Math.mulDiv`, dust policy, treasury withdrawal, and the public `accrue` integration entrypoint resolve implementation gaps without changing payout proportions. |
 | `hasAccess` and Gateway delivery | Part 2.5 and Part 2.6 | Source query logic preserved exactly. V1 explicitly records the resulting loss of future Gateway access for prior Copy holders after an Exclusive sale. |
-| Required Main Protocol events | Part 4 | The four source events are preserved exactly. Listing, challenge, treasury, config, assignment, and wiring events are additive V1 observability events. |
+| Required Main Protocol events | Part 4 | The four source event names are preserved. `DatasetRegistered` and the additive challenge event carry the V1 Manifest/evidence commitments and versions required for independent discovery and monitoring. |
 | Weight challengeability | Parts 1.3 and 5; open question in Part 7 | Source requires optimistic challengeability before first payout but leaves mechanics open. V1 blocks both purchases and payouts, uses off-chain evidence plus ADMIN resolution, and permanently invalidates upheld roots. |
 | Roles, pause, config, and upgrades | Part 6 | Source roles, pausing, config, and UUPS requirements are preserved. Payment-token immutability, exact pause behavior, and per-Dataset challenge snapshots are V1 decisions. |
 | Governance timelock deployment | Part 6 and confirmed governance-delay decision | `ProtocolTimelock` is an additive OpenZeppelin `TimelockController` wrapper that makes the required 48-hour delay and multisig roles concrete and deployable. It adds no sale or Dataset behavior. |
@@ -654,6 +707,7 @@ Required project tooling:
 
 - Hardhat 3 plus `@nomicfoundation/hardhat-toolbox-mocha-ethers` for compile, Ethers integration, Mocha assertions, and network helpers.
 - OpenZeppelin Contracts and Hardhat Upgrades for UUPS deployment and upgrade validation.
+- The pinned official `@safe-global/safe-smart-account` package for real threshold-signature and nonce integration testing of deployment administration transactions.
 - TypeScript and generated Hardhat contract bindings for typed scripts and contract interaction.
 - Hardhat 3 native `--coverage` and `--gas-stats` reporting, plus Solhint and Prettier, for test visibility and code quality. The legacy `solidity-coverage` and `hardhat-gas-reporter` plugins are not used because their current peer ranges target Hardhat 2; the required coverage and gas outputs are still produced.
 - Slither in CI as an independent static-analysis gate. Findings must be fixed or recorded with a reviewed justification before release.
@@ -662,17 +716,19 @@ Required project tooling:
 | Area | Required acceptance coverage |
 | --- | --- |
 | Registration | CONTRIBUTOR self-registration; assigned OPERATOR registration; unassigned/unauthorized rejection; every validation failure; immutable registration fields; deadline snapshot; exact `DatasetRegistered`. |
-| Listing | Copy-only, Exclusive-only, and concurrent listings; zero-price rejection; same-kind duplicate rejection; delist/relist price change; status transitions; contributor-only authorization; `priceOf` inactive behavior. |
+| Listing | Copy-only, Exclusive-only, and concurrent listings; zero-price rejection; same-kind duplicate rejection; delist/relist price change; `maxFeeBps` snapshot; status transitions; contributor-only authorization; `priceOf` inactive behavior. |
 | Challenge timing | Purchase/claim blocked at `deadline - 1`; allowed at exactly `deadline`; timely record; late record rejection; Pending blocks purchase/claim/relisting; Rejected recovery; repeated timely challenge; Upheld atomically delists and permanently blocks the old Dataset. |
-| Copy purchase | Exact payment, fee/net accounting, one-token mint, `copiesSold`, event, duplicate-wallet rejection, automatic Exclusive delist under the zero-copy policy, paused rejection, reentrancy resistance. |
-| Exclusive purchase | Zero-copy policy branch; forward-exclusive branch after Copy sales; both listings deactivated; terminal status; one Exclusive token; no later sale or mint. |
+| Copy purchase | Exact expected-price and deadline protection; seller fee-cap rejection; exact payment, fee/net accounting, one-token mint, `copiesSold`, event, duplicate-wallet rejection, automatic Exclusive delist under the zero-copy policy, paused rejection, reentrancy resistance. |
+| Exclusive purchase | Exact expected-price and deadline protection; seller fee-cap rejection; zero-copy policy branch; forward-exclusive branch after Copy sales; both listings deactivated; terminal status; one Exclusive token; no later sale or mint. |
 | Entitlements | Copy single/batch transfer rejection; Exclusive transfer success and receiver checks; `hasAccess` before/after Exclusive sale and after Exclusive transfer; unknown Dataset returns false. |
-| Revenue | Multiple sales and staggered claims; valid/invalid proofs; wrong weight/address; double-claim; late claim; `Math.mulDiv` large values; rounding dust; treasury isolation/withdrawal; `claimable` is non-authoritative without proof. |
+| Revenue | Multiple sales and staggered claims; valid/invalid proofs; wrong weight/address; double-claim; late claim; `Math.mulDiv` large values; per-Dataset liability isolation against over-allocated valid leaves; individual weight cap; outbound fee, blacklist, and negative-rebase rejection; exact claimant/treasury receipt; rounding dust; Timelock-only surplus rescue; treasury isolation/withdrawal; `claimable` is non-authoritative without proof. |
 | Pause/config | Exact paused/unpaused operation matrix; non-timelock config rejection; immediate ADMIN pause; fee/timestamp boundary values; treasury change semantics; challenge-window changes affect only new Datasets. |
-| Dependency wiring | Zero-address rejection; ADMIN-only setup; operation rejection before wiring; successful Marketplace proxy wiring; second-call rejection on all three dependent contracts. Shared deployment/verification logic must execute in an integration test, including multisig transaction emission/execution and the local-EOA exception. |
+| Dependency wiring | Zero-address rejection; ADMIN-only setup; operation rejection before wiring; reverse Marketplace dependency mismatch rejection; successful Marketplace proxy wiring; second-call rejection on all three dependent contracts. Shared deployment/verification logic must execute in integration tests, including the local-EOA exception and an official 2/2 Safe proxy that rejects one signature, rejects nonce replay, executes all six emitted administration transactions, and passes post-deployment verification. |
 | Persistent deployment validation | Directly execute the persistent-network validation branch for every supported canonical network; reject canonical-chain mismatch, unreviewed names, and missing EIP-1153 confirmation. Reject payment-token code-hash/decimals mismatches and Safe code-hash/owner-set/threshold mismatches. A real persistent-network broadcast remains a separate release gate. |
 | Initial contributor identity | Post-deployment verification must fail unless `CONTRIBUTOR_ROLE` has exactly one member and that member is `NURTURE_CONTRIBUTOR`; it must also reject a distinct Pipeline operator that was additionally granted Contributor membership. |
-| Cross-system Merkle compatibility | A fixed JSON vector must reproduce `keccak256(abi.encode(address,uint256))`, sorted-pair hashing, the documented total weight, root, leaves, and proofs off-chain, and every proof must pass an on-chain OpenZeppelin `MerkleProof` harness. |
+| Cross-system Merkle compatibility | A fixed JSON vector must reproduce `keccak256(abi.encode(address,uint256))`, sorted-pair hashing, the documented total weight, root, leaves, and proofs off-chain, and every proof must pass an on-chain OpenZeppelin `MerkleProof` harness. The executable allocation validator must reject duplicate/zero addresses, zero/excessive weights, and every exact-total mismatch. |
+| Weights Manifest | Generation must include complete unique leaves and proofs. Verification must reject root, Dataset ID, chain ID, Registry, total, hash-version, proof, availability, and exact-byte digest mismatches; on-chain registration must expose the public URI/digest/version and reject an unexpected next Dataset ID. |
+| Administrator-mediated Challenge | Direct non-ADMIN recording rejection; nonzero evidence URI/digest; exact evidence event/version/timestamps; timely/late boundaries; duplicate/repeated transitions; Pending fail-closed after deadline and after its 72-hour SLA; resolution remains possible after SLA; upheld and failed Marketplace invalidation behavior. |
 | Upgradeability and governance isolation | Only the fixed Timelock address can authorize Marketplace and RevenueSplitter upgrades; 48-hour production minimum delay; storage-layout upgrade check; role-transfer/revoke/renounce bypass rejection across the Timelock and all six governed contracts; all non-upgradeable contracts reject proxy-style initialization assumptions. |
 | Deferred scope | ABI and deployment assertions confirm no `AuctionHouse`, `IAuctionHouse`, `listExclusiveAuction`, `bid`, or `settle` exists in V1 artifacts. |
 
@@ -693,12 +749,14 @@ contracts/
     IDatasetRegistry.sol
     IEntitlementNFT.sol
     IMarketplace.sol
+    IMarketplaceBindings.sol
     IRevenueSplitter.sol
   utils/
     FixedGovernanceAccessControl.sol
   test/
     CopyOrderReceiver.sol
     FeeOnTransferERC20.sol
+    InconsistentDatasetRegistry.sol
     MarketplaceV2.sol
     MockERC20.sol
     MockMarketplace.sol
@@ -716,6 +774,8 @@ test/
     DatasetRegistry.ts
     DeploymentValidation.ts
     EntitlementNFT.ts
+    MerkleAllocation.ts
+    WeightsManifest.ts
     ProtocolConfig.ts
     ProtocolTimelock.ts
     RevenueSplitter.ts
@@ -723,19 +783,29 @@ test/
     Deployment.ts
     Marketplace.ts
     MarketplaceAcceptance.ts
+    OfficialSafeDeployment.ts
 scripts/
   deploy.ts
+  generate-weights-manifest.ts
+  validate-merkle-allocation.ts
+  verify-weights-manifest.ts
   verify-deployment.ts
   lib/
     deploy-main-protocol.ts
     deployment-validation.ts
+    merkle-allocation.ts
+    weights-manifest.ts
     verify-main-protocol.ts
 .github/workflows/
   ci.yml
 security/
+  PRODUCTION_SECURITY_CHECKLIST.md
   SLITHER_REVIEW.md
 test-vectors/
   merkle.json
+schemas/
+  weight-challenge-evidence-v1.schema.json
+  weights-manifest-v1.schema.json
 hardhat.config.ts
 .env.example
 ```
@@ -753,3 +823,13 @@ Deployment order is fixed:
 9. Run `scripts/verify-deployment.ts` with the emitted deployer and implementation addresses supplied as `DEPLOYER_ADDRESS`, `MARKETPLACE_IMPLEMENTATION`, and `REVENUE_SPLITTER_IMPLEMENTATION`. Verification checks the external dependency pins, canonical network identity, Timelock roles/minimum delay/sole self-admin state, every core contract's fixed Timelock, exact one-member initial Contributor allowlist containing only Nurture, Nurture/Pipeline onboarding and assignment, every core role, dependency/wiring address, exact proxy implementation address, immutable payment token, fee, treasury, gateway signer, challenge window, and pause state. It accepts a governance-increased delay but fails below 48 hours or on any implementation-address change. It also fails if the operational multisig holds any `DEFAULT_ADMIN_ROLE`, or if the deployment address retains any Timelock, `DEFAULT_ADMIN_ROLE`, `ADMIN_ROLE`, `OPERATOR_ROLE`, or `CONTRIBUTOR_ROLE` production privilege.
 
 Deployment and verification consume the variables documented in `.env.example`. `ADMIN_MULTISIG_OWNERS` is a comma-separated exact owner set, and `ADMIN_MULTISIG_THRESHOLD` must be at least `2` and no greater than that set's size. `NURTURE_CONTRIBUTOR` and `PIPELINE_OPERATOR` must be nonzero and distinct. `ALLOW_EOA_ADMIN=true` is supported by both deployment and verification only on Hardhat's local simulated network, requires `ADMIN_MULTISIG == DEPLOYER_ADDRESS`, and is forbidden on persistent networks.
+
+### External production release gates
+
+The automated suite does not replace the following environment- and organization-owned work:
+
+- Populate and independently review the exact Base Sepolia payment-token, production Safe, treasury, Gateway signer, Nurture Contributor, Pipeline operator, fee, and challenge-window inputs.
+- Broadcast the deployment on Base Sepolia, execute the six emitted onboarding/wiring transactions through the selected production Safe, and run `verify-deployment.ts` against the resulting addresses.
+- Complete an independent smart-contract audit and resolve or formally accept every finding.
+- Complete the separately scoped Pipeline and Access Gateway implementations and approve the challenge-resolution SLA, HSM/multisig key custody, monitoring, incident response, and buyer-facing exclusivity disclosures.
+- Complete and sign off every applicable item in `security/PRODUCTION_SECURITY_CHECKLIST.md` against the exact release commit and deployed addresses.

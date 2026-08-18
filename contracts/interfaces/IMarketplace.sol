@@ -7,6 +7,7 @@ struct Listing {
     uint256 datasetId;
     SaleKind kind;
     uint256 price;
+    uint16 maxFeeBps;
     bool active;
 }
 
@@ -15,8 +16,8 @@ interface IMarketplace {
     function listExclusiveFixed(uint256 datasetId, uint256 price) external;
     function delist(uint256 datasetId, SaleKind kind) external;
 
-    function buyCopy(uint256 datasetId) external;
-    function buyExclusive(uint256 datasetId) external;
+    function buyCopy(uint256 datasetId, uint256 expectedPrice, uint256 deadline) external;
+    function buyExclusive(uint256 datasetId, uint256 expectedPrice, uint256 deadline) external;
 
     function priceOf(uint256 datasetId, SaleKind kind) external view returns (uint256);
     function getListing(uint256 datasetId, SaleKind kind) external view returns (Listing memory);

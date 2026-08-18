@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { AbiCoder, keccak256 } from "ethers";
+import { AbiCoder, keccak256, MaxUint256 } from "ethers";
 import hre from "hardhat";
 import { upgrades } from "@openzeppelin/hardhat-upgrades";
 
@@ -73,12 +73,16 @@ describe("Marketplace acceptance coverage", function () {
         licensesTransferable: false,
       },
     ) {
+      const expectedDatasetId = await datasets.nextDatasetId();
       const registration = {
+        expectedDatasetId,
         contentHash: ethers.id("payload-preview"),
         sampleURI: "ipfs://sample",
         payloadURI: "ipfs://payload",
         weightsRoot: root,
         totalWeight: weight,
+        weightsURI: `ipfs://weights-manifest-${expectedDatasetId}`,
+        weightsManifestHash: ethers.id(`weights-manifest-${expectedDatasetId}`),
         policy,
         tag: "acceptance",
       };
@@ -152,12 +156,11 @@ describe("Marketplace acceptance coverage", function () {
     const deadline = await d.datasets.challengeWindowEndsAt(id);
 
     await networkHelpers.time.setNextBlockTimestamp(deadline - 1n);
-    await expect(d.market.connect(d.buyer).buyCopy(id)).to.be.revertedWithCustomError(
-      d.market,
-      "DatasetNotPurchasable",
-    );
+    await expect(
+      d.market.connect(d.buyer).buyCopy(id, 1_000, MaxUint256),
+    ).to.be.revertedWithCustomError(d.market, "DatasetNotPurchasable");
     await networkHelpers.time.setNextBlockTimestamp(deadline);
-    await d.market.connect(d.buyer).buyCopy(id);
+    await d.market.connect(d.buyer).buyCopy(id, 1_000, MaxUint256);
   });
 
   it("allows forward-exclusive purchase after Copy sales", async function () {
@@ -167,9 +170,9 @@ describe("Marketplace acceptance coverage", function () {
     await d.market.connect(d.contributor).listExclusiveFixed(id, 5_000);
     await networkHelpers.time.setNextBlockTimestamp(await d.datasets.challengeWindowEndsAt(id));
 
-    await d.market.connect(d.buyer).buyCopy(id);
+    await d.market.connect(d.buyer).buyCopy(id, 1_000, MaxUint256);
     expect((await d.datasets.getDataset(id)).copiesSold).to.equal(1);
-    await d.market.connect(d.buyer2).buyExclusive(id);
+    await d.market.connect(d.buyer2).buyExclusive(id, 5_000, MaxUint256);
     expect((await d.datasets.getDataset(id)).status).to.equal(2);
     expect(await d.nft.hasAccess(id, d.buyer.address)).to.equal(false);
     expect(await d.nft.hasAccess(id, d.buyer2.address)).to.equal(true);
@@ -180,18 +183,18 @@ describe("Marketplace acceptance coverage", function () {
     const rejectedId = await d.register();
     await d.market.connect(d.contributor).listCopy(rejectedId, 1_000);
     await d.market.connect(d.contributor).listExclusiveFixed(rejectedId, 5_000);
-    await d.datasets.connect(d.admin).recordChallenge(rejectedId, ethers.id("pending"));
+    await d.datasets
+      .connect(d.admin)
+      .recordChallenge(rejectedId, ethers.id("pending"), "ipfs://pending");
     await networkHelpers.time.setNextBlockTimestamp(
       await d.datasets.challengeWindowEndsAt(rejectedId),
     );
-    await expect(d.market.connect(d.buyer).buyCopy(rejectedId)).to.be.revertedWithCustomError(
-      d.market,
-      "DatasetNotPurchasable",
-    );
-    await expect(d.market.connect(d.buyer).buyExclusive(rejectedId)).to.be.revertedWithCustomError(
-      d.market,
-      "DatasetNotPurchasable",
-    );
+    await expect(
+      d.market.connect(d.buyer).buyCopy(rejectedId, 1_000, MaxUint256),
+    ).to.be.revertedWithCustomError(d.market, "DatasetNotPurchasable");
+    await expect(
+      d.market.connect(d.buyer).buyExclusive(rejectedId, 5_000, MaxUint256),
+    ).to.be.revertedWithCustomError(d.market, "DatasetNotPurchasable");
     await d.market.connect(d.contributor).delist(rejectedId, 0);
     await d.market.connect(d.contributor).delist(rejectedId, 1);
     await expect(
@@ -202,12 +205,14 @@ describe("Marketplace acceptance coverage", function () {
     ).to.be.revertedWithCustomError(d.splitter, "ClaimNotAvailable");
     await d.datasets.connect(d.admin).resolveChallenge(rejectedId, false);
     await d.market.connect(d.contributor).listCopy(rejectedId, 1_000);
-    await d.market.connect(d.buyer).buyCopy(rejectedId);
+    await d.market.connect(d.buyer).buyCopy(rejectedId, 1_000, MaxUint256);
     await d.splitter.connect(d.contributor).claim(rejectedId, d.weight, []);
 
     const upheldId = await d.register();
     await d.market.connect(d.contributor).listCopy(upheldId, 1_000);
-    await d.datasets.connect(d.admin).recordChallenge(upheldId, ethers.id("upheld"));
+    await d.datasets
+      .connect(d.admin)
+      .recordChallenge(upheldId, ethers.id("upheld"), "ipfs://upheld");
     await d.datasets.connect(d.admin).resolveChallenge(upheldId, true);
     expect(await d.market.priceOf(upheldId, 0)).to.equal(0);
     await expect(
@@ -225,7 +230,7 @@ describe("Marketplace acceptance coverage", function () {
     await networkHelpers.time.setNextBlockTimestamp(await d.datasets.challengeWindowEndsAt(id));
 
     const balanceBefore = await d.token.balanceOf(d.buyer.address);
-    await expect(d.market.connect(d.buyer).buyCopy(id))
+    await expect(d.market.connect(d.buyer).buyCopy(id, 1_000, MaxUint256))
       .to.be.revertedWithCustomError(d.market, "IncorrectTokenTransfer")
       .withArgs(1_000, 990);
     expect(await d.token.balanceOf(d.buyer.address)).to.equal(balanceBefore);
@@ -237,9 +242,9 @@ describe("Marketplace acceptance coverage", function () {
     const id = await d.register();
     await d.market.connect(d.contributor).listCopy(id, 1_000);
     await networkHelpers.time.setNextBlockTimestamp(await d.datasets.challengeWindowEndsAt(id));
-    await d.token.configureAttack(await d.market.getAddress(), id);
+    await d.token.configureAttack(await d.market.getAddress(), id, 1_000);
 
-    await d.market.connect(d.buyer).buyCopy(id);
+    await d.market.connect(d.buyer).buyCopy(id, 1_000, MaxUint256);
     expect(await d.token.reentryBlocked()).to.equal(true);
     expect((await d.datasets.getDataset(id)).copiesSold).to.equal(1);
   });
