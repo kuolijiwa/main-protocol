@@ -1,0 +1,11 @@
+node_modules/
+artifacts/
+cache/
+types/
+coverage/
+coverage.json
+gas-stats.json
+package-lock.json
+.google-doc-bridge/
+protocol_technical_design.md
+MAIN_PROTOCOL_DEVELOPMENT_SPEC.md

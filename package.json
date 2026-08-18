@@ -1,0 +1,47 @@
+{
+  "name": "main-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "compile": "hardhat compile",
+    "test": "hardhat test",
+    "coverage": "hardhat --coverage test",
+    "gas": "hardhat --gas-stats test",
+    "typecheck": "tsc --noEmit",
+    "lint:sol": "solhint 'contracts/**/*.sol'",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:contributor-registry": "hardhat test test/unit/ContributorRegistry.ts",
+    "test:protocol-config": "hardhat test test/unit/ProtocolConfig.ts",
+    "test:dataset-registry": "hardhat test test/unit/DatasetRegistry.ts",
+    "test:entitlement-nft": "hardhat test test/unit/EntitlementNFT.ts",
+    "test:revenue-splitter": "hardhat test test/unit/RevenueSplitter.ts",
+    "test:marketplace": "hardhat test test/integration/Marketplace.ts",
+    "deploy": "hardhat run scripts/deploy.ts",
+    "verify:deployment": "hardhat run scripts/verify-deployment.ts",
+    "ci": "npm run format:check && npm run lint:sol && npm run typecheck && npm run coverage",
+    "clean": "hardhat clean"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "5.6.1",
+    "@openzeppelin/contracts-upgradeable": "5.6.1"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "4.0.15",
+    "@nomicfoundation/hardhat-ethers-chai-matchers": "3.0.11",
+    "@nomicfoundation/hardhat-toolbox-mocha-ethers": "3.0.7",
+    "@openzeppelin/hardhat-upgrades": "4.1.0",
+    "@types/chai": "5.2.3",
+    "@types/mocha": "10.0.10",
+    "@types/node": "latest",
+    "chai": "6.2.2",
+    "ethers": "6.17.0",
+    "hardhat": "3.13.0",
+    "mocha": "11.8.0",
+    "prettier": "3.9.6",
+    "prettier-plugin-solidity": "2.4.1",
+    "solhint": "6.2.4",
+    "typescript": "latest"
+  }
+}

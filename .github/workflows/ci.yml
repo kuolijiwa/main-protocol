@@ -1,0 +1,60 @@
+name: Main Protocol CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run format:check
+      - run: npm run lint:sol
+      - run: npm run typecheck
+      - run: npm run coverage
+      - run: npm run gas -- --gas-stats-json gas-stats.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gas-stats
+          path: gas-stats.json
+
+  slither:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: npm ci
+      - run: python -m pip install slither-analyzer==0.11.5
+      - run: solc-select install 0.8.28
+      - run: solc-select use 0.8.28
+      - name: Run Slither with the Hardhat 3-compatible solc frontend
+        run: >-
+          slither contracts
+          --compile-force-framework solc
+          --solc-standard-json
+          --solc-remaps '@openzeppelin/=node_modules/@openzeppelin/'
+          --solc-args '--evm-version cancun'
+          --filter-paths '(node_modules/|contracts/test/)'
+          --json slither-report.json
+          --fail-high
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: slither-report
+          path: slither-report.json
