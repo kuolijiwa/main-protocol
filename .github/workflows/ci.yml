@@ -21,6 +21,8 @@ jobs:
       - run: npm run format:check
       - run: npm run lint:sol
       - run: npm run typecheck
+      - run: npm run audit:deps
+      - run: ALLOCATION_FILE=test-vectors/allocation.json npm run validate:allocation
       - run: npm run coverage
       - run: npm run gas -- --gas-stats-json gas-stats.json
       - uses: actions/upload-artifact@v4

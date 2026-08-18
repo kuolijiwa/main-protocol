@@ -23,7 +23,9 @@
     "validate:allocation": "hardhat run scripts/validate-merkle-allocation.ts",
     "generate:weights-manifest": "hardhat run scripts/generate-weights-manifest.ts",
     "verify:weights-manifest": "hardhat run scripts/verify-weights-manifest.ts",
-    "ci": "npm run format:check && npm run lint:sol && npm run typecheck && ALLOCATION_FILE=test-vectors/merkle.json npm run validate:allocation && npm run coverage",
+    "validate:challenge-evidence": "hardhat run scripts/validate-weight-challenge-evidence.ts",
+    "audit:deps": "npm audit --audit-level=high --registry=https://registry.npmjs.org && npm audit --omit=dev --audit-level=moderate --registry=https://registry.npmjs.org",
+    "ci": "npm run format:check && npm run lint:sol && npm run typecheck && npm run audit:deps && ALLOCATION_FILE=test-vectors/allocation.json npm run validate:allocation && npm run coverage",
     "clean": "hardhat clean"
   },
   "dependencies": {
@@ -39,6 +41,8 @@
     "@types/chai": "5.2.3",
     "@types/mocha": "10.0.10",
     "@types/node": "latest",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
     "chai": "6.2.2",
     "ethers": "6.17.0",
     "hardhat": "3.13.0",
@@ -47,5 +51,12 @@
     "prettier-plugin-solidity": "2.4.1",
     "solhint": "6.2.4",
     "typescript": "latest"
+  },
+  "overrides": {
+    "mocha": {
+      "diff": "8.0.3",
+      "glob": "10.5.0",
+      "serialize-javascript": "7.1.0"
+    }
   }
 }

@@ -1,4 +1,6 @@
-import { AbiCoder, concat, getAddress, keccak256, ZeroAddress } from "ethers";
+import { AbiCoder, concat, getAddress, keccak256, MaxUint256, ZeroAddress } from "ethers";
+
+import { requireExactKeys, requireObject } from "./json-validation.js";
 
 export interface WeightEntry {
   address: string;
@@ -14,6 +16,12 @@ export interface ValidatedWeightAllocation {
     leaf: string;
     proof: string[];
   }>;
+}
+
+export interface WeightAllocationDocument {
+  totalWeight: string;
+  root?: string;
+  entries: WeightEntry[];
 }
 
 function sortedPairHash(left: string, right: string): string {
@@ -65,6 +73,7 @@ export function validateWeightAllocation(
 ): ValidatedWeightAllocation {
   const totalWeight = BigInt(declaredTotalWeight);
   if (totalWeight <= 0n) throw new Error("totalWeight must be greater than zero");
+  if (totalWeight > MaxUint256) throw new Error("totalWeight exceeds uint256");
   if (entries.length === 0) throw new Error("weight allocation must contain at least one entry");
 
   const seen = new Set<string>();
@@ -83,6 +92,7 @@ export function validateWeightAllocation(
 
     const weight = BigInt(entry.weight);
     if (weight <= 0n) throw new Error(`entry ${index} weight must be greater than zero`);
+    if (weight > MaxUint256) throw new Error(`entry ${index} weight exceeds uint256`);
     if (weight > totalWeight) {
       throw new Error(`entry ${index} weight exceeds totalWeight`);
     }
@@ -104,4 +114,37 @@ export function validateWeightAllocation(
     root: allocationRoot(validated.map(({ leaf }) => leaf)),
     entries: validated.map((entry) => ({ ...entry, proof: proofs.get(entry.leaf)! })),
   };
+}
+
+export function validateWeightAllocationDocument(value: unknown): ValidatedWeightAllocation {
+  requireObject(value, "weight allocation");
+  const allowedKeys =
+    "root" in value ? ["totalWeight", "root", "entries"] : ["totalWeight", "entries"];
+  requireExactKeys(value, allowedKeys, "weight allocation");
+  if (typeof value.totalWeight !== "string" || !/^[1-9][0-9]*$/.test(value.totalWeight)) {
+    throw new Error("totalWeight must be a positive decimal string");
+  }
+  if (!Array.isArray(value.entries)) throw new Error("entries must be an array");
+  for (const [index, entry] of value.entries.entries()) {
+    requireObject(entry, `allocation entry ${index}`);
+    requireExactKeys(entry, ["address", "weight"], `allocation entry ${index}`);
+    if (typeof entry.address !== "string") {
+      throw new Error(`allocation entry ${index} address must be a string`);
+    }
+    if (typeof entry.weight !== "string" || !/^[1-9][0-9]*$/.test(entry.weight)) {
+      throw new Error(`allocation entry ${index} weight must be a positive decimal string`);
+    }
+  }
+
+  const allocation = validateWeightAllocation(
+    value.entries as unknown as WeightEntry[],
+    value.totalWeight,
+  );
+  if ("root" in value) {
+    if (typeof value.root !== "string") throw new Error("allocation root must be a string");
+    if (allocation.root.toLowerCase() !== value.root.toLowerCase()) {
+      throw new Error(`allocation root mismatch: expected ${value.root}, got ${allocation.root}`);
+    }
+  }
+  return allocation;
 }

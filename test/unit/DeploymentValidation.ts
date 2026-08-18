@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { keccak256, ZeroHash } from "ethers";
+import { getAddress, keccak256, ZeroAddress, ZeroHash } from "ethers";
 import { network } from "hardhat";
 import {
   type Environment,
@@ -21,6 +21,17 @@ async function expectFailure(operation: Promise<unknown>, message: string): Prom
   }
   expect(failure).to.be.instanceOf(Error);
   expect((failure as Error).message).to.contain(message);
+}
+
+async function safeSecurityEnvironment(safeAddress: string): Promise<Environment> {
+  const singletonWord = await ethers.provider.getStorage(safeAddress, 0n);
+  const singleton = getAddress(`0x${singletonWord.slice(-40)}`);
+  return {
+    ADMIN_MULTISIG_SINGLETON: singleton,
+    ADMIN_MULTISIG_SINGLETON_CODE_HASH: keccak256(await ethers.provider.getCode(singleton)),
+    ADMIN_MULTISIG_GUARD: ZeroAddress,
+    ADMIN_MULTISIG_FALLBACK_HANDLER: ZeroAddress,
+  };
 }
 
 describe("Deployment validation", function () {
@@ -98,6 +109,7 @@ describe("Deployment validation", function () {
       ADMIN_MULTISIG_CODE_HASH: keccak256(await ethers.provider.getCode(safeAddress)),
       ADMIN_MULTISIG_OWNERS: `${deployer.address},${secondOwner.address},${thirdOwner.address}`,
       ADMIN_MULTISIG_THRESHOLD: "3",
+      ...(await safeSecurityEnvironment(safeAddress)),
     };
 
     await expectFailure(
@@ -138,6 +150,7 @@ describe("Deployment validation", function () {
       ADMIN_MULTISIG_CODE_HASH: keccak256(await ethers.provider.getCode(safeAddress)),
       ADMIN_MULTISIG_OWNERS: `${deployer.address},${secondOwner.address},${thirdOwner.address}`,
       ADMIN_MULTISIG_THRESHOLD: "3",
+      ...(await safeSecurityEnvironment(safeAddress)),
     };
 
     await expectFailure(
@@ -173,6 +186,62 @@ describe("Deployment validation", function () {
       ),
       "ADMIN_MULTISIG threshold mismatch",
     );
+    await expectFailure(
+      validateExternalDeploymentInputs(
+        connection,
+        { ...env, ADMIN_MULTISIG_SINGLETON: outsider.address },
+        tokenAddress,
+        safeAddress,
+        deployer.address,
+      ),
+      "ADMIN_MULTISIG singleton mismatch",
+    );
+    await expectFailure(
+      validateExternalDeploymentInputs(
+        connection,
+        { ...env, ADMIN_MULTISIG_GUARD: outsider.address },
+        tokenAddress,
+        safeAddress,
+        deployer.address,
+      ),
+      "ADMIN_MULTISIG guard mismatch",
+    );
+
+    await (await safe.setTestModule(outsider.address)).wait();
+    await expectFailure(
+      validateExternalDeploymentInputs(
+        connection,
+        env,
+        tokenAddress,
+        safeAddress,
+        deployer.address,
+      ),
+      "ADMIN_MULTISIG must not have enabled modules",
+    );
+    await (await safe.setTestModule(ZeroAddress)).wait();
+    await (await safe.setTestGuard(outsider.address)).wait();
+    await expectFailure(
+      validateExternalDeploymentInputs(
+        connection,
+        env,
+        tokenAddress,
+        safeAddress,
+        deployer.address,
+      ),
+      "ADMIN_MULTISIG guard mismatch",
+    );
+    await (await safe.setTestGuard(ZeroAddress)).wait();
+    await (await safe.setTestFallbackHandler(outsider.address)).wait();
+    await expectFailure(
+      validateExternalDeploymentInputs(
+        connection,
+        env,
+        tokenAddress,
+        safeAddress,
+        deployer.address,
+      ),
+      "ADMIN_MULTISIG fallback handler mismatch",
+    );
   });
 
   it("rejects dependencies with no code or incompatible read interfaces", async function () {
@@ -191,6 +260,7 @@ describe("Deployment validation", function () {
       ADMIN_MULTISIG_CODE_HASH: keccak256(await ethers.provider.getCode(safeAddress)),
       ADMIN_MULTISIG_OWNERS: `${deployer.address},${secondOwner.address},${thirdOwner.address}`,
       ADMIN_MULTISIG_THRESHOLD: "3",
+      ...(await safeSecurityEnvironment(safeAddress)),
     };
 
     await expectFailure(

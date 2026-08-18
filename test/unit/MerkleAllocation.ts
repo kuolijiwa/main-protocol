@@ -1,6 +1,10 @@
 import { expect } from "chai";
+import { MaxUint256 } from "ethers";
 import vector from "../../test-vectors/merkle.json" with { type: "json" };
-import { validateWeightAllocation } from "../../scripts/lib/merkle-allocation.js";
+import {
+  validateWeightAllocation,
+  validateWeightAllocationDocument,
+} from "../../scripts/lib/merkle-allocation.js";
 
 describe("Merkle allocation validation", function () {
   const valid = vector.entries.map(({ address, weight }) => ({ address, weight }));
@@ -46,5 +50,45 @@ describe("Merkle allocation validation", function () {
     expect(() => validateWeightAllocation(valid, 99n)).to.throw(
       "weight sum mismatch: expected 99, got 100",
     );
+  });
+
+  it("strictly validates the Pipeline allocation document before publication", function () {
+    const allocation = validateWeightAllocationDocument({
+      totalWeight: vector.totalWeight,
+      root: vector.root,
+      entries: valid,
+    });
+    expect(allocation.root).to.equal(vector.root);
+
+    expect(() =>
+      validateWeightAllocationDocument({
+        totalWeight: vector.totalWeight,
+        root: vector.root,
+        entries: valid,
+        ignoredByOldValidator: true,
+      }),
+    ).to.throw("unsupported field");
+    expect(() =>
+      validateWeightAllocationDocument({
+        totalWeight: vector.totalWeight,
+        entries: [{ ...valid[0], proof: [] }, ...valid.slice(1)],
+      }),
+    ).to.throw("allocation entry 0 contains unsupported field: proof");
+  });
+
+  it("rejects a stale declared root and values outside uint256", function () {
+    expect(() =>
+      validateWeightAllocationDocument({
+        totalWeight: vector.totalWeight,
+        root: `0x${"00".repeat(32)}`,
+        entries: valid,
+      }),
+    ).to.throw("allocation root mismatch");
+    expect(() =>
+      validateWeightAllocation(
+        [{ address: valid[0].address, weight: MaxUint256 + 1n }],
+        MaxUint256 + 1n,
+      ),
+    ).to.throw("totalWeight exceeds uint256");
   });
 });

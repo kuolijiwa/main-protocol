@@ -1,5 +1,5 @@
 import { expect } from "chai";
-import { type BaseContract, keccak256 } from "ethers";
+import { type BaseContract, getAddress, id, keccak256, ZeroAddress, ZeroHash } from "ethers";
 import { network } from "hardhat";
 import {
   type AdminTransaction,
@@ -9,7 +9,7 @@ import type { Environment } from "../../scripts/lib/deployment-validation.js";
 import { verifyMainProtocol } from "../../scripts/lib/verify-main-protocol.js";
 
 const connection = await network.create();
-const { ethers } = connection;
+const { ethers, networkHelpers } = connection;
 
 function outputAddress(output: Record<string, unknown>, name: string): string {
   const value = output[name];
@@ -24,6 +24,17 @@ async function executeAdminTransactions(
   for (const transaction of transactions) {
     await (await safe.getFunction("execute")(transaction.to, transaction.data)).wait();
   }
+}
+
+async function safeSecurityEnvironment(safeAddress: string): Promise<Environment> {
+  const singletonWord = await ethers.provider.getStorage(safeAddress, 0n);
+  const singleton = getAddress(`0x${singletonWord.slice(-40)}`);
+  return {
+    ADMIN_MULTISIG_SINGLETON: singleton,
+    ADMIN_MULTISIG_SINGLETON_CODE_HASH: keccak256(await ethers.provider.getCode(singleton)),
+    ADMIN_MULTISIG_GUARD: ZeroAddress,
+    ADMIN_MULTISIG_FALLBACK_HANDLER: ZeroAddress,
+  };
 }
 
 describe("Production deployment topology", function () {
@@ -46,6 +57,7 @@ describe("Production deployment topology", function () {
       ADMIN_MULTISIG_CODE_HASH: keccak256(await ethers.provider.getCode(adminMultisig)),
       ADMIN_MULTISIG_OWNERS: `${deployer.address},${secondOwner.address}`,
       ADMIN_MULTISIG_THRESHOLD: "2",
+      ...(await safeSecurityEnvironment(adminMultisig)),
       TREASURY: treasury.address,
       GATEWAY_SIGNER: gateway.address,
       NURTURE_CONTRIBUTOR: nurture.address,
@@ -61,6 +73,7 @@ describe("Production deployment topology", function () {
 
     const verificationEnvironment: Environment = {
       ...baseEnvironment,
+      ...(deployment.verificationCodeHashes as Environment),
       PROTOCOL_TIMELOCK: outputAddress(deployment, "protocolTimelock"),
       CONTRIBUTOR_REGISTRY: outputAddress(deployment, "contributorRegistry"),
       PROTOCOL_CONFIG: outputAddress(deployment, "protocolConfig"),
@@ -74,6 +87,20 @@ describe("Production deployment topology", function () {
     };
     const verification = await verifyMainProtocol(connection, verificationEnvironment);
     expect(verification.verified).to.equal(true);
+
+    let runtimeCodeMismatch: unknown;
+    try {
+      await verifyMainProtocol(connection, {
+        ...verificationEnvironment,
+        PROTOCOL_TIMELOCK_CODE_HASH: ZeroHash,
+      });
+    } catch (error) {
+      runtimeCodeMismatch = error;
+    }
+    expect(runtimeCodeMismatch).to.be.instanceOf(Error);
+    expect((runtimeCodeMismatch as Error).message).to.contain(
+      "protocolTimelock runtime code hash mismatch",
+    );
 
     let implementationMismatch: unknown;
     try {
@@ -112,6 +139,60 @@ describe("Production deployment topology", function () {
     expect((extraInitialContributor as Error).message).to.contain(
       "CONTRIBUTOR_ROLE must have exactly one initial member",
     );
+    await (
+      await safe.connect(deployer).getFunction("execute")(
+        await contributorRegistry.getAddress(),
+        contributorRegistry.interface.encodeFunctionData("revokeRole", [
+          await contributorRegistry.CONTRIBUTOR_ROLE(),
+          pipeline.address,
+        ]),
+      )
+    ).wait();
+
+    const protocolConfig = await ethers.getContractAt(
+      "ProtocolConfig",
+      outputAddress(deployment, "protocolConfig"),
+    );
+    const timelock = await ethers.getContractAt(
+      "ProtocolTimelock",
+      outputAddress(deployment, "protocolTimelock"),
+    );
+    const grantExtraAdmin = protocolConfig.interface.encodeFunctionData("grantRole", [
+      await protocolConfig.ADMIN_ROLE(),
+      pipeline.address,
+    ]);
+    const salt = id("deployment-verifier-extra-admin-test");
+    const delay = await timelock.getMinDelay();
+    const schedule = timelock.interface.encodeFunctionData("schedule", [
+      await protocolConfig.getAddress(),
+      0,
+      grantExtraAdmin,
+      ZeroHash,
+      salt,
+      delay,
+    ]);
+    await (
+      await safe.connect(deployer).getFunction("execute")(await timelock.getAddress(), schedule)
+    ).wait();
+    await networkHelpers.time.increase(delay);
+    const execute = timelock.interface.encodeFunctionData("execute", [
+      await protocolConfig.getAddress(),
+      0,
+      grantExtraAdmin,
+      ZeroHash,
+      salt,
+    ]);
+    await (
+      await safe.connect(deployer).getFunction("execute")(await timelock.getAddress(), execute)
+    ).wait();
+    let extraOperationalAdmin: unknown;
+    try {
+      await verifyMainProtocol(connection, verificationEnvironment);
+    } catch (error) {
+      extraOperationalAdmin = error;
+    }
+    expect(extraOperationalAdmin).to.be.instanceOf(Error);
+    expect((extraOperationalAdmin as Error).message).to.contain("ADMIN_ROLE member set mismatch");
 
     const localEoaEnvironment: Environment = {
       ...baseEnvironment,
@@ -125,6 +206,7 @@ describe("Production deployment topology", function () {
     expect(localDeployment.adminTransactions).to.deep.equal([]);
     const localVerification = await verifyMainProtocol(connection, {
       ...localEoaEnvironment,
+      ...(localDeployment.verificationCodeHashes as Environment),
       PROTOCOL_TIMELOCK: outputAddress(localDeployment, "protocolTimelock"),
       CONTRIBUTOR_REGISTRY: outputAddress(localDeployment, "contributorRegistry"),
       PROTOCOL_CONFIG: outputAddress(localDeployment, "protocolConfig"),

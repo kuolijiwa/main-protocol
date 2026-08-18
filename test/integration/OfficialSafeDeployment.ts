@@ -3,6 +3,7 @@ import {
   concat,
   Contract,
   ContractFactory,
+  getAddress,
   getBytes,
   type InterfaceAbi,
   keccak256,
@@ -114,6 +115,17 @@ async function signedSafeCall(
   return { args, signatures: concat(signatures.map(({ encoded }) => encoded)) };
 }
 
+async function safeSecurityEnvironment(safeAddress: string): Promise<Environment> {
+  const singletonWord = await ethers.provider.getStorage(safeAddress, 0n);
+  const singleton = getAddress(`0x${singletonWord.slice(-40)}`);
+  return {
+    ADMIN_MULTISIG_SINGLETON: singleton,
+    ADMIN_MULTISIG_SINGLETON_CODE_HASH: keccak256(await ethers.provider.getCode(singleton)),
+    ADMIN_MULTISIG_GUARD: ZeroAddress,
+    ADMIN_MULTISIG_FALLBACK_HANDLER: ZeroAddress,
+  };
+}
+
 describe("Official Safe deployment integration", function () {
   it("requires 2/2 signatures, prevents nonce replay, and executes all admin transactions", async function () {
     const [deployer, secondOwner, treasury, gateway, nurture, pipeline] = await ethers.getSigners();
@@ -136,6 +148,7 @@ describe("Official Safe deployment integration", function () {
       ADMIN_MULTISIG_CODE_HASH: keccak256(await ethers.provider.getCode(adminMultisig)),
       ADMIN_MULTISIG_OWNERS: owners.map((owner) => owner.address).join(","),
       ADMIN_MULTISIG_THRESHOLD: "2",
+      ...(await safeSecurityEnvironment(adminMultisig)),
       TREASURY: treasury.address,
       GATEWAY_SIGNER: gateway.address,
       NURTURE_CONTRIBUTOR: nurture.address,
@@ -171,6 +184,7 @@ describe("Official Safe deployment integration", function () {
 
     const verification = await verifyMainProtocol(connection, {
       ...environment,
+      ...(deployment.verificationCodeHashes as Environment),
       PROTOCOL_TIMELOCK: outputAddress(deployment, "protocolTimelock"),
       CONTRIBUTOR_REGISTRY: outputAddress(deployment, "contributorRegistry"),
       PROTOCOL_CONFIG: outputAddress(deployment, "protocolConfig"),

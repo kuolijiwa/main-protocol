@@ -1,4 +1,12 @@
-import { Contract, getAddress, isAddress, isHexString, keccak256, ZeroAddress } from "ethers";
+import {
+  Contract,
+  getAddress,
+  isAddress,
+  isHexString,
+  keccak256,
+  toUtf8Bytes,
+  ZeroAddress,
+} from "ethers";
 import type { NetworkConnection } from "hardhat/types/network";
 
 export type Environment = Record<string, string | undefined>;
@@ -14,6 +22,14 @@ export function requiredAddress(env: Environment, name: string): string {
   const value = env[name];
   if (value === undefined || !isAddress(value) || value === ZeroAddress) {
     throw new Error(`${name} must be a nonzero EVM address`);
+  }
+  return getAddress(value);
+}
+
+export function requiredAddressIncludingZero(env: Environment, name: string): string {
+  const value = env[name];
+  if (value === undefined || !isAddress(value)) {
+    throw new Error(`${name} must be an EVM address`);
   }
   return getAddress(value);
 }
@@ -109,7 +125,7 @@ export function validateNetworkIdentity(
   );
 }
 
-function sameAddressSet(actual: string[], expected: string[]): boolean {
+export function sameAddressSet(actual: string[], expected: string[]): boolean {
   const normalize = (values: string[]) =>
     values.map((value) => getAddress(value).toLowerCase()).sort();
   const normalizedActual = normalize(actual);
@@ -127,6 +143,20 @@ export interface ExternalValidationResult {
   adminMultisigCodeHash?: string;
   adminMultisigOwners?: string[];
   adminMultisigThreshold?: bigint;
+  adminMultisigSingleton?: string;
+  adminMultisigGuard?: string;
+  adminMultisigFallbackHandler?: string;
+}
+
+const SAFE_SENTINEL_MODULES = "0x0000000000000000000000000000000000000001";
+const SAFE_GUARD_STORAGE_SLOT = keccak256(toUtf8Bytes("guard_manager.guard.address"));
+const SAFE_FALLBACK_HANDLER_STORAGE_SLOT = keccak256(
+  toUtf8Bytes("fallback_manager.handler.address"),
+);
+
+function addressFromStorageWord(word: string): string {
+  if (!isHexString(word, 32)) throw new Error("invalid EVM storage word");
+  return getAddress(`0x${word.slice(-40)}`);
 }
 
 export async function validateExternalDeploymentInputs(
@@ -199,6 +229,7 @@ export async function validateExternalDeploymentInputs(
     [
       "function getOwners() view returns (address[])",
       "function getThreshold() view returns (uint256)",
+      "function getModulesPaginated(address,uint256) view returns (address[],address)",
     ],
     ethers.provider,
   );
@@ -217,6 +248,50 @@ export async function validateExternalDeploymentInputs(
   check(sameAddressSet(adminMultisigOwners, expectedOwners), "ADMIN_MULTISIG owner set mismatch");
   check(adminMultisigThreshold === expectedThreshold, "ADMIN_MULTISIG threshold mismatch");
 
+  const adminMultisigSingleton = addressFromStorageWord(
+    await ethers.provider.getStorage(adminMultisig, 0n),
+  );
+  const expectedSingleton = requiredAddress(env, "ADMIN_MULTISIG_SINGLETON");
+  check(adminMultisigSingleton === expectedSingleton, "ADMIN_MULTISIG singleton mismatch");
+  const singletonCode = await ethers.provider.getCode(adminMultisigSingleton);
+  check(singletonCode !== "0x", "ADMIN_MULTISIG singleton has no deployed code");
+  check(
+    keccak256(singletonCode).toLowerCase() ===
+      requiredBytes32(env, "ADMIN_MULTISIG_SINGLETON_CODE_HASH"),
+    "ADMIN_MULTISIG singleton runtime code hash mismatch",
+  );
+
+  let modules: string[];
+  let nextModule: string;
+  try {
+    [modules, nextModule] = (await multisigContract.getModulesPaginated(
+      SAFE_SENTINEL_MODULES,
+      100n,
+    )) as [string[], string];
+  } catch {
+    throw new Error("ADMIN_MULTISIG does not expose the required Safe module interface");
+  }
+  check(
+    modules.length === 0 && getAddress(nextModule) === SAFE_SENTINEL_MODULES,
+    "ADMIN_MULTISIG must not have enabled modules",
+  );
+
+  const adminMultisigGuard = addressFromStorageWord(
+    await ethers.provider.getStorage(adminMultisig, SAFE_GUARD_STORAGE_SLOT),
+  );
+  const adminMultisigFallbackHandler = addressFromStorageWord(
+    await ethers.provider.getStorage(adminMultisig, SAFE_FALLBACK_HANDLER_STORAGE_SLOT),
+  );
+  check(
+    adminMultisigGuard === requiredAddressIncludingZero(env, "ADMIN_MULTISIG_GUARD"),
+    "ADMIN_MULTISIG guard mismatch",
+  );
+  check(
+    adminMultisigFallbackHandler ===
+      requiredAddressIncludingZero(env, "ADMIN_MULTISIG_FALLBACK_HANDLER"),
+    "ADMIN_MULTISIG fallback handler mismatch",
+  );
+
   return {
     chainId,
     paymentTokenCodeHash,
@@ -224,5 +299,8 @@ export async function validateExternalDeploymentInputs(
     adminMultisigCodeHash,
     adminMultisigOwners,
     adminMultisigThreshold,
+    adminMultisigSingleton,
+    adminMultisigGuard,
+    adminMultisigFallbackHandler,
   };
 }

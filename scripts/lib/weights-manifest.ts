@@ -1,6 +1,12 @@
-import { getAddress, isHexString, keccak256, toUtf8Bytes } from "ethers";
+import { getAddress, isHexString, keccak256, toUtf8Bytes, ZeroHash } from "ethers";
 
 import { validateWeightAllocation } from "./merkle-allocation.js";
+import {
+  requireCanonicalUtcTimestamp,
+  requireExactKeys,
+  requireObject,
+  requirePositiveDecimal,
+} from "./json-validation.js";
 
 export const WEIGHTS_MANIFEST_SCHEMA = "main-protocol.weights-manifest.v1";
 export const WEIGHTS_LEAF_ENCODING = "keccak256(abi.encode(address,uint256))";
@@ -15,7 +21,7 @@ export interface WeightsManifestV1 {
   pairHashing: string;
   totalWeight: string;
   weightsRoot: string;
-  entries: Array<{ address: string; weight: string; proof?: string[] }>;
+  entries: Array<{ address: string; weight: string; proof: string[] }>;
   pipeline: {
     version: string;
     generatedAt: string;
@@ -44,22 +50,29 @@ export interface BuildWeightsManifestInput extends WeightsManifestContext {
   contentDigest: string;
 }
 
-function requireObject(value: unknown): asserts value is Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) {
-    throw new Error("weights manifest must be a JSON object");
-  }
-}
-
 export function hashWeightsManifest(raw: string | Uint8Array): string {
   return keccak256(typeof raw === "string" ? toUtf8Bytes(raw) : raw);
 }
 
 export function buildWeightsManifest(input: BuildWeightsManifestInput): WeightsManifestV1 {
-  const allocation = validateWeightAllocation(input.entries, input.totalWeight);
+  if (input.datasetId <= 0n) throw new Error("datasetId must be greater than zero");
+  if (input.chainId <= 0n) throw new Error("chainId must be greater than zero");
+  if (!input.pipelineVersion.trim()) throw new Error("pipeline version is required");
+  requireCanonicalUtcTimestamp(input.generatedAt, "pipeline generatedAt");
+  if (!isHexString(input.contentDigest, 32) || input.contentDigest === ZeroHash) {
+    throw new Error("pipeline contentDigest must be a nonzero bytes32");
+  }
+
+  // Canonical address ordering makes the exact Manifest bytes reproducible even
+  // if an upstream Pipeline worker emits the same allocation in a different order.
+  const canonicalEntries = [...input.entries].sort((left, right) =>
+    getAddress(left.address).toLowerCase().localeCompare(getAddress(right.address).toLowerCase()),
+  );
+  const allocation = validateWeightAllocation(canonicalEntries, input.totalWeight);
   if (allocation.root.toLowerCase() !== input.weightsRoot.toLowerCase()) {
     throw new Error("generated allocation does not match weightsRoot");
   }
-  return {
+  const manifest: WeightsManifestV1 = {
     schema: WEIGHTS_MANIFEST_SCHEMA,
     datasetId: input.datasetId.toString(),
     chainId: input.chainId.toString(),
@@ -79,33 +92,82 @@ export function buildWeightsManifest(input: BuildWeightsManifestInput): WeightsM
       contentDigest: input.contentDigest,
     },
   };
+  // The generator and the public verifier intentionally share the same strict
+  // validation path so the Pipeline cannot publish a document the verifier rejects.
+  validateWeightsManifest(manifest, input);
+  return manifest;
 }
 
 export function validateWeightsManifest(
   value: unknown,
   context: WeightsManifestContext,
 ): VerifiedWeightsManifest {
-  requireObject(value);
+  requireObject(value, "weights manifest");
+  requireExactKeys(
+    value,
+    [
+      "schema",
+      "datasetId",
+      "chainId",
+      "datasetRegistry",
+      "leafEncoding",
+      "pairHashing",
+      "totalWeight",
+      "weightsRoot",
+      "entries",
+      "pipeline",
+    ],
+    "weights manifest",
+  );
   const manifest = value as unknown as WeightsManifestV1;
   if (manifest.schema !== WEIGHTS_MANIFEST_SCHEMA) throw new Error("leaf hash version mismatch");
-  if (BigInt(manifest.datasetId) !== context.datasetId) throw new Error("datasetId mismatch");
-  if (BigInt(manifest.chainId) !== context.chainId) throw new Error("chainId mismatch");
+  if (requirePositiveDecimal(manifest.datasetId, "datasetId") !== context.datasetId) {
+    throw new Error("datasetId mismatch");
+  }
+  if (requirePositiveDecimal(manifest.chainId, "chainId") !== context.chainId) {
+    throw new Error("chainId mismatch");
+  }
   if (getAddress(manifest.datasetRegistry) !== getAddress(context.datasetRegistry)) {
     throw new Error("DatasetRegistry address mismatch");
   }
   if (manifest.leafEncoding !== WEIGHTS_LEAF_ENCODING) throw new Error("leaf encoding mismatch");
   if (manifest.pairHashing !== WEIGHTS_PAIR_HASHING) throw new Error("pair hashing mismatch");
   if (!Array.isArray(manifest.entries)) throw new Error("entries must be an array");
-  if (BigInt(manifest.totalWeight) !== context.totalWeight) throw new Error("totalWeight mismatch");
-  if (!manifest.pipeline || typeof manifest.pipeline !== "object") {
-    throw new Error("pipeline metadata is required");
+  if (manifest.entries.length === 0) throw new Error("entries must not be empty");
+  if (requirePositiveDecimal(manifest.totalWeight, "totalWeight") !== context.totalWeight) {
+    throw new Error("totalWeight mismatch");
   }
-  if (!manifest.pipeline.version) throw new Error("pipeline version is required");
-  if (!Number.isFinite(Date.parse(manifest.pipeline.generatedAt))) {
-    throw new Error("pipeline generatedAt must be an ISO timestamp");
+  if (!isHexString(manifest.weightsRoot, 32) || manifest.weightsRoot === ZeroHash) {
+    throw new Error("weightsRoot must be a nonzero bytes32");
   }
-  if (!isHexString(manifest.pipeline.contentDigest, 32)) {
-    throw new Error("pipeline contentDigest must be bytes32");
+
+  for (const [index, entry] of manifest.entries.entries()) {
+    requireObject(entry, `entry ${index}`);
+    requireExactKeys(entry, ["address", "weight", "proof"], `entry ${index}`);
+    requirePositiveDecimal(entry.weight, `entry ${index} weight`);
+    if (!Array.isArray(entry.proof)) throw new Error(`entry ${index} proof must be an array`);
+    for (const [proofIndex, node] of entry.proof.entries()) {
+      if (!isHexString(node, 32)) {
+        throw new Error(`entry ${index} proof ${proofIndex} must be bytes32`);
+      }
+    }
+  }
+
+  requireObject(manifest.pipeline, "pipeline metadata");
+  requireExactKeys(
+    manifest.pipeline as unknown as Record<string, unknown>,
+    ["version", "generatedAt", "contentDigest"],
+    "pipeline metadata",
+  );
+  if (typeof manifest.pipeline.version !== "string" || !manifest.pipeline.version.trim()) {
+    throw new Error("pipeline version is required");
+  }
+  requireCanonicalUtcTimestamp(manifest.pipeline.generatedAt, "pipeline generatedAt");
+  if (
+    !isHexString(manifest.pipeline.contentDigest, 32) ||
+    manifest.pipeline.contentDigest === ZeroHash
+  ) {
+    throw new Error("pipeline contentDigest must be a nonzero bytes32");
   }
 
   const allocation = validateWeightAllocation(manifest.entries, manifest.totalWeight);

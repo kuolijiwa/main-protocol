@@ -18,10 +18,10 @@
 | `RevenueSplitter` | Implemented, UUPS-tested, and passing | 23 |
 | `Marketplace` | Implemented, UUPS/integration-tested, and passing | 22 |
 | `ProtocolTimelock` | Implemented, delay/role/execution-tested, and passing | 10 |
-| Artifact/deployment/network/Merkle/Manifest/deferred-scope assertions | Passing | 25 |
-| **Total** | **Full regression passing** | **140** |
+| Artifact/deployment/network/Merkle/Manifest/Challenge/deferred-scope assertions | Passing | 39 |
+| **Total** | **Full regression passing** | **154** |
 
-The deployment and post-deployment verification scripts share the same importable, integration-tested implementation and are TypeScript-checked. Persistent-network identity and rejection branches are directly unit-tested without broadcasting a deployment. An official Safe v1.5.0 Singleton/proxy integration test requires two owner signatures, checks nonce replay rejection, executes all six onboarding/wiring transactions, and then runs full deployment verification; the lightweight `MockSafe` remains only for fast dependency-validation tests. Hardhat compilation, formatting, Solidity lint, coverage, gas reporting, and the 140-test regression suite pass. Slither 0.11.5 completes with no high-severity finding; reviewed non-high findings are recorded in `security/SLITHER_REVIEW.md`. Within the confirmed V1 decisions and explicitly deferred scope, the current source has no known mismatch with this development specification. A real persistent-network deployment, production Safe execution, public challenge-intake/Gateway operations, and an independent smart-contract audit remain release gates.
+The deployment and post-deployment verification scripts share the same importable, integration-tested implementation and are TypeScript-checked. Persistent-network identity and rejection branches are directly unit-tested without broadcasting a deployment. An official Safe v1.5.0 Singleton/proxy integration test requires two owner signatures, checks nonce replay rejection, executes all six onboarding/wiring transactions, and then runs full deployment verification; focused tests also reject unexpected singleton/code, modules, guard, fallback handler, code hashes, and extra privileged role members. Hardhat compilation, formatting, Solidity lint, 98.59% line coverage, 98.55% statement coverage, gas reporting, dependency gates, and the 154-test regression suite pass. Slither 0.11.5 completes with no high-severity finding; reviewed non-high findings are recorded in `security/SLITHER_REVIEW.md`. Within the confirmed V1 decisions and explicitly deferred scope, the current source has no known mismatch with this development specification. A real persistent-network deployment, production Safe execution, public challenge-intake/Gateway operations, and an independent smart-contract audit remain release gates.
 
 ## Confirmed V1 decisions
 
@@ -276,6 +276,8 @@ interface IDatasetRegistry {
     function challengeEvidenceURI(uint256 datasetId) external view returns (string memory);
     function challengeRecordedAt(uint256 datasetId) external view returns (uint256);
     function challengeResolutionDueAt(uint256 datasetId) external view returns (uint256);
+    function CHALLENGE_EVIDENCE_VERSION() external view returns (bytes32);
+    function CHALLENGE_RESOLUTION_SLA() external view returns (uint256);
 
     function weightsInvalidated(uint256 datasetId)
         external
@@ -411,14 +413,14 @@ uint256 tokenId = uint256(keccak256(abi.encode(datasetId, kind)));
 
 ### Dataset registration
 
-1. An allowlisted contributor, or its assigned OPERATOR, submits `RegisterParams` through `registerDataset`.
-2. Require `contentHash != bytes32(0)`, non-empty `sampleURI`, non-empty `payloadURI`, `weightsRoot != bytes32(0)`, `totalWeight > 0`, `policy.allowCopy || policy.allowExclusive`, and `policy.licensesTransferable == false`.
+1. An allowlisted contributor, or its assigned OPERATOR, publishes the exact validated Manifest bytes and submits `RegisterParams` through `registerDataset` using the Manifest's computed root, public URI, and exact-byte digest.
+2. Require `expectedDatasetId == nextDatasetId`, `contentHash != bytes32(0)`, non-empty `sampleURI`, non-empty `payloadURI`, `weightsRoot != bytes32(0)`, `totalWeight > 0`, non-empty `weightsURI`, `weightsManifestHash != bytes32(0)`, `policy.allowCopy || policy.allowExclusive`, and `policy.licensesTransferable == false`.
 3. The protocol records only metadata, rights, settlement data, and commitments. Dataset bytes never go on-chain.
 4. The public sample is available at `sampleURI`; the encrypted complete payload is referenced by `payloadURI`.
-5. The Dataset stores its `contentHash`, `weightsRoot`, `totalWeight`, and contributor-declared `SalePolicy`, starts with `status = Draft`, and snapshots `challengeWindowEndsAt = block.timestamp + ProtocolConfig.challengeWindow`.
-6. Set `challengeStatus = None`, `weightsInvalidated = false`, and emit `DatasetRegistered`.
+5. The Dataset stores its `contentHash`, `weightsRoot`, `totalWeight`, and contributor-declared `SalePolicy`; the Registry stores `weightsURI` and `weightsManifestHash`; registration starts with `status = Draft` and snapshots `challengeWindowEndsAt = block.timestamp + ProtocolConfig.challengeWindow`.
+6. Set `challengeStatus = None`, `weightsInvalidated = false`, and emit `DatasetRegistered` with the Manifest URI, digest, and `WEIGHTS_MANIFEST_VERSION`.
 
-The leaf set must contain at most one nonzero-address leaf per address; every weight must be positive and no greater than `totalWeight`; and its weights must sum exactly to `totalWeight`. The deterministic tree sorts leaf hashes, hashes each sibling pair in sorted order, and promotes an unpaired node unchanged. Because only the Merkle root is stored on-chain, the Batch Pipeline must run `validate-merkle-allocation.ts` before registration and publish the complete validated leaf set for public recomputation and challenge. Main Protocol additionally caps aggregate claims to `unclaimedRevenue[datasetId]`, limiting any malformed root to its own Dataset balance.
+The leaf set must contain exactly one nonzero-address leaf per included address; every weight must be positive, fit in `uint256`, and be no greater than `totalWeight`; and its weights must sum exactly to `totalWeight`. The deterministic tree sorts leaf hashes, hashes each sibling pair in sorted order, and promotes an unpaired node unchanged. The Batch Pipeline must run the strict allocation-document validator and `generate-weights-manifest.ts`; the generator verifies the live chain ID, Registry code and Manifest version, reads `nextDatasetId()` directly instead of accepting a manual Dataset ID, computes the root from validated leaves, orders Manifest entries canonically, generates every proof, validates all metadata through the same code path as the public verifier, and refuses unknown input fields. The exact generated bytes are then published for public recomputation and challenge. The chain stores the root plus the public Manifest URI, exact-byte digest, and schema/hash version. Main Protocol additionally caps aggregate claims to `unclaimedRevenue[datasetId]`, limiting any malformed root to its own Dataset balance.
 
 ### Listing rules and Dataset lifecycle
 
@@ -528,7 +530,7 @@ The required state machine is:
 
 1. Registration sets the deadline, `challengeStatus = None`, and `weightsInvalidated = false`.
 2. Listings may be created during the review window, but `buyCopy`, `buyExclusive`, and `claim` are blocked until `block.timestamp >= challengeWindowEndsAt`.
-3. Anyone may submit a public document matching `schemas/weight-challenge-evidence-v1.schema.json` through `POST /v1/datasets/{datasetId}/challenges`. The service acknowledges a valid submission within 24 hours and escalates immediately as the review deadline approaches. Before the deadline, only the ADMIN multisig may call `recordChallenge(datasetId, evidenceHash, evidenceURI)`, changing `None` or `Rejected` to `Pending`. Both values must be nonempty; `evidenceHash = keccak256(raw evidence bytes)`. The call stores `challengeRecordedAt` and `challengeResolutionDueAt = challengeRecordedAt + 72 hours`. A late challenge cannot be recorded through this V1 path. Earlier records remain discoverable through events.
+3. Anyone may submit a public document matching `schemas/weight-challenge-evidence-v1.schema.json` through `POST /v1/datasets/{datasetId}/challenges`. Intake must execute the same strict validator exposed by `npm run validate:challenge-evidence`, including exact field set, canonical UTC timestamp, nonzero challenger/artifact digests, unique artifact URIs, and chain/Registry/Dataset/root binding. The service acknowledges a valid submission within 24 hours and escalates immediately as the review deadline approaches. Before the deadline, only the ADMIN multisig may call `recordChallenge(datasetId, evidenceHash, evidenceURI)`, changing `None` or `Rejected` to `Pending`. Both values must be nonempty; `evidenceHash = keccak256(raw evidence bytes)`. The call stores `challengeRecordedAt` and `challengeResolutionDueAt = challengeRecordedAt + 72 hours`. A late challenge cannot be recorded through this V1 path. Earlier records remain discoverable through events.
 4. While `Pending`, purchases, claims, and new/relisted listings remain blocked regardless of the deadline. Contributor delisting and ADMIN resolution remain available.
 5. `resolveChallenge(datasetId, false)` changes `Pending` to `Rejected`. Purchases and claims are then allowed only after the original deadline has passed.
 6. `resolveChallenge(datasetId, true)` changes `Pending` to `Upheld`, sets `weightsInvalidated = true`, calls `Marketplace.invalidateListings(datasetId)`, and sets the Dataset to `Delisted` in the same transaction. Listing, relisting, purchase, and claim paths for that Dataset are permanently blocked.
@@ -724,10 +726,11 @@ Required project tooling:
 | Revenue | Multiple sales and staggered claims; valid/invalid proofs; wrong weight/address; double-claim; late claim; `Math.mulDiv` large values; per-Dataset liability isolation against over-allocated valid leaves; individual weight cap; outbound fee, blacklist, and negative-rebase rejection; exact claimant/treasury receipt; rounding dust; Timelock-only surplus rescue; treasury isolation/withdrawal; `claimable` is non-authoritative without proof. |
 | Pause/config | Exact paused/unpaused operation matrix; non-timelock config rejection; immediate ADMIN pause; fee/timestamp boundary values; treasury change semantics; challenge-window changes affect only new Datasets. |
 | Dependency wiring | Zero-address rejection; ADMIN-only setup; operation rejection before wiring; reverse Marketplace dependency mismatch rejection; successful Marketplace proxy wiring; second-call rejection on all three dependent contracts. Shared deployment/verification logic must execute in integration tests, including the local-EOA exception and an official 2/2 Safe proxy that rejects one signature, rejects nonce replay, executes all six emitted administration transactions, and passes post-deployment verification. |
-| Persistent deployment validation | Directly execute the persistent-network validation branch for every supported canonical network; reject canonical-chain mismatch, unreviewed names, and missing EIP-1153 confirmation. Reject payment-token code-hash/decimals mismatches and Safe code-hash/owner-set/threshold mismatches. A real persistent-network broadcast remains a separate release gate. |
+| Persistent deployment validation | Directly execute the persistent-network validation branch for every supported canonical network; reject canonical-chain mismatch, unreviewed names, and missing EIP-1153 confirmation. Reject payment-token code-hash/decimals mismatches; Safe proxy/singleton code, owner-set, threshold, guard, fallback-handler, or module mismatches; any core/proxy/implementation runtime-code mismatch; any extra privileged role member; and protocol constant/SLA mismatches. A real persistent-network broadcast remains a separate release gate. |
 | Initial contributor identity | Post-deployment verification must fail unless `CONTRIBUTOR_ROLE` has exactly one member and that member is `NURTURE_CONTRIBUTOR`; it must also reject a distinct Pipeline operator that was additionally granted Contributor membership. |
 | Cross-system Merkle compatibility | A fixed JSON vector must reproduce `keccak256(abi.encode(address,uint256))`, sorted-pair hashing, the documented total weight, root, leaves, and proofs off-chain, and every proof must pass an on-chain OpenZeppelin `MerkleProof` harness. The executable allocation validator must reject duplicate/zero addresses, zero/excessive weights, and every exact-total mismatch. |
 | Weights Manifest | Generation must include complete unique leaves and proofs. Verification must reject root, Dataset ID, chain ID, Registry, total, hash-version, proof, availability, and exact-byte digest mismatches; on-chain registration must expose the public URI/digest/version and reject an unexpected next Dataset ID. |
+| Challenge evidence document | The executable validator must reject schema, Dataset ID, chain ID, Registry, root, challenger, timestamp, reason, summary, artifact, duplicate-URI, unknown-field, invalid-JSON, and exact-byte commitment errors before ADMIN records the evidence. |
 | Administrator-mediated Challenge | Direct non-ADMIN recording rejection; nonzero evidence URI/digest; exact evidence event/version/timestamps; timely/late boundaries; duplicate/repeated transitions; Pending fail-closed after deadline and after its 72-hour SLA; resolution remains possible after SLA; upheld and failed Marketplace invalidation behavior. |
 | Upgradeability and governance isolation | Only the fixed Timelock address can authorize Marketplace and RevenueSplitter upgrades; 48-hour production minimum delay; storage-layout upgrade check; role-transfer/revoke/renounce bypass rejection across the Timelock and all six governed contracts; all non-upgradeable contracts reject proxy-style initialization assumptions. |
 | Deferred scope | ABI and deployment assertions confirm no `AuctionHouse`, `IAuctionHouse`, `listExclusiveAuction`, `bid`, or `settle` exists in V1 artifacts. |
@@ -770,6 +773,7 @@ test/
     ArtifactScope.ts
     MerkleVector.ts
   unit/
+    ChallengeEvidence.ts
     ContributorRegistry.ts
     DatasetRegistry.ts
     DeploymentValidation.ts
@@ -779,6 +783,7 @@ test/
     ProtocolConfig.ts
     ProtocolTimelock.ts
     RevenueSplitter.ts
+    SchemaCompatibility.ts
   integration/
     Deployment.ts
     Marketplace.ts
@@ -788,20 +793,25 @@ scripts/
   deploy.ts
   generate-weights-manifest.ts
   validate-merkle-allocation.ts
+  validate-weight-challenge-evidence.ts
   verify-weights-manifest.ts
   verify-deployment.ts
   lib/
+    challenge-evidence.ts
     deploy-main-protocol.ts
     deployment-validation.ts
+    json-validation.ts
     merkle-allocation.ts
     weights-manifest.ts
     verify-main-protocol.ts
 .github/workflows/
   ci.yml
 security/
+  DEPENDENCY_AUDIT.md
   PRODUCTION_SECURITY_CHECKLIST.md
   SLITHER_REVIEW.md
 test-vectors/
+  allocation.json
   merkle.json
 schemas/
   weight-challenge-evidence-v1.schema.json
@@ -812,7 +822,7 @@ hardhat.config.ts
 
 Deployment order is fixed:
 
-1. Select `baseSepolia` (`84532`) for the test network or a reviewed `base` (`8453`), `arbitrum` (`42161`), or `optimism` (`10`) production network; pin the same value in `EXPECTED_CHAIN_ID`; confirm EIP-1153 support; validate the reviewed payment token's runtime code hash, decimals, and ERC-20 read interface; and validate the Safe-compatible production multisig's runtime code hash, exact owners, and threshold. Deployment rejects any named-network/canonical-chain mismatch.
+1. Select `baseSepolia` (`84532`) for the test network or a reviewed `base` (`8453`), `arbitrum` (`42161`), or `optimism` (`10`) production network; pin the same value in `EXPECTED_CHAIN_ID`; confirm EIP-1153 support; validate the reviewed payment token's runtime code hash, decimals, and ERC-20 read interface; and validate the Safe-compatible production multisig's proxy code hash, singleton address/code hash, exact owners/threshold, exact guard/fallback-handler configuration, and absence of enabled modules. Deployment rejects any named-network/canonical-chain mismatch.
 2. Deploy `ProtocolTimelock` with the production multisig as proposer, executor, and canceller; verify its initial 48-hour delay and permanently locked self-admin role.
 3. Deploy `ContributorRegistry` and `ProtocolConfig` with `ProtocolTimelock` as `DEFAULT_ADMIN_ROLE` and the production multisig as operational `ADMIN_ROLE`.
 4. Through the operational multisig, grant `CONTRIBUTOR_ROLE` to `NURTURE_CONTRIBUTOR`, grant `OPERATOR_ROLE` to the distinct `PIPELINE_OPERATOR`, and call `setOperatorContributor(PIPELINE_OPERATOR, NURTURE_CONTRIBUTOR)`. The Pipeline operator must not also hold `CONTRIBUTOR_ROLE`, because direct-contributor attribution takes precedence.
@@ -820,9 +830,9 @@ Deployment order is fixed:
 6. Deploy and initialize the `RevenueSplitter` UUPS proxy without a Marketplace address.
 7. Deploy and initialize the `Marketplace` UUPS proxy with the registry, NFT, splitter, and config addresses.
 8. Through the operational multisig, call `setMarketplaceOnce` on `DatasetRegistry`, `EntitlementNFT`, and `RevenueSplitter` with the Marketplace proxy address. `scripts/deploy.ts` emits the ordered onboarding and wiring calls together as `adminTransactions` when the deployer is not the multisig.
-9. Run `scripts/verify-deployment.ts` with the emitted deployer and implementation addresses supplied as `DEPLOYER_ADDRESS`, `MARKETPLACE_IMPLEMENTATION`, and `REVENUE_SPLITTER_IMPLEMENTATION`. Verification checks the external dependency pins, canonical network identity, Timelock roles/minimum delay/sole self-admin state, every core contract's fixed Timelock, exact one-member initial Contributor allowlist containing only Nurture, Nurture/Pipeline onboarding and assignment, every core role, dependency/wiring address, exact proxy implementation address, immutable payment token, fee, treasury, gateway signer, challenge window, and pause state. It accepts a governance-increased delay but fails below 48 hours or on any implementation-address change. It also fails if the operational multisig holds any `DEFAULT_ADMIN_ROLE`, or if the deployment address retains any Timelock, `DEFAULT_ADMIN_ROLE`, `ADMIN_ROLE`, `OPERATOR_ROLE`, or `CONTRIBUTOR_ROLE` production privilege.
+9. Run `scripts/verify-deployment.ts` with the emitted deployer, implementation addresses, and independently reviewed runtime code hashes supplied through `.env`. Verification checks the external dependency pins, canonical network identity, Safe security configuration, every core/proxy/implementation code hash, Timelock minimum delay and exact role-member sets, every core contract's exact admin-role sets, exact one-member initial Contributor and Operator allowlists, Nurture/Pipeline assignment, Manifest/challenge schema constants and 72-hour SLA, dependency/wiring addresses, exact proxy implementation addresses, immutable payment token, fee, treasury, gateway signer, challenge window, and pause state. It accepts a governance-increased delay but fails below 48 hours, on any extra privileged role member, or on any address/code/configuration change.
 
-Deployment and verification consume the variables documented in `.env.example`. `ADMIN_MULTISIG_OWNERS` is a comma-separated exact owner set, and `ADMIN_MULTISIG_THRESHOLD` must be at least `2` and no greater than that set's size. `NURTURE_CONTRIBUTOR` and `PIPELINE_OPERATOR` must be nonzero and distinct. `ALLOW_EOA_ADMIN=true` is supported by both deployment and verification only on Hardhat's local simulated network, requires `ADMIN_MULTISIG == DEPLOYER_ADDRESS`, and is forbidden on persistent networks.
+Deployment and verification consume the variables documented in `.env.example`. `ADMIN_MULTISIG_OWNERS` is a comma-separated exact owner set, `ADMIN_MULTISIG_THRESHOLD` must be at least `2` and no greater than that set's size, and the singleton/guard/fallback-handler values must match the reviewed Safe configuration exactly; V1 rejects every enabled Safe module. `NURTURE_CONTRIBUTOR` and `PIPELINE_OPERATOR` must be nonzero and distinct. `ALLOW_EOA_ADMIN=true` is supported by both deployment and verification only on Hardhat's local simulated network, requires `ADMIN_MULTISIG == DEPLOYER_ADDRESS`, and is forbidden on persistent networks. `npm run audit:deps` is part of CI: the complete toolchain must have no High/Critical advisories and production dependencies must have no Moderate-or-higher advisories, with the rationale for any remaining Low toolchain advisories recorded in `security/DEPENDENCY_AUDIT.md`.
 
 ### External production release gates
 

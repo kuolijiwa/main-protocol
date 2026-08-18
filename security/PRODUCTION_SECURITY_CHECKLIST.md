@@ -9,9 +9,9 @@ This checklist records the controls that cannot be completed solely by unit/inte
 - [ ] Deploy only with the reviewed payment-token proxy and implementation. Confirm exact-transfer behavior, no transfer tax, rebase policy, blacklist/pause authority, upgrade authority, decimals, and runtime code hashes.
 - [ ] Confirm payment-token balance remains at least `treasuryBalance + contributorBalance`; alert and pause on any deficit.
 - [ ] Confirm the selected persistent network supports EIP-1153. For Base Sepolia/Base, record the relevant network-upgrade evidence with the deployment review.
-- [ ] Execute all six onboarding/wiring transactions through the reviewed production Safe. Before signing, decode every target and calldata; after execution, run `verify-deployment.ts`.
+- [ ] Pin the production Safe proxy and singleton runtime code hashes, exact singleton, owners, threshold, guard, and fallback handler; confirm that no module is enabled. Execute all six onboarding/wiring transactions through that reviewed Safe. Before signing, decode every target and calldata; after execution, run `verify-deployment.ts`.
 - [ ] Confirm all three irreversible wiring calls pass their reverse dependency checks and emit the expected `MarketplaceWired` event.
-- [ ] Run the complete test, coverage, gas, Slither, storage-layout, dependency-audit, and deployment-verification gates on the exact release commit.
+- [ ] Independently review and pin every core, proxy, and implementation runtime code hash emitted by deployment; run the complete test, coverage, gas, Slither, storage-layout, `npm run audit:deps`, and deployment-verification gates on the exact release commit.
 - [ ] Complete an independent smart-contract audit and resolve or formally accept every finding.
 
 ## Governance and incident response
@@ -19,7 +19,7 @@ This checklist records the controls that cannot be completed solely by unit/inte
 - [ ] Use a high-threshold, multi-organization hardware-wallet Safe for Timelock proposer/executor/canceller authority; document owner replacement and key-loss recovery.
 - [ ] Monitor `CallScheduled`, `Cancelled`, `CallExecuted`, and `Upgraded`. Alert contributors and buyers for every scheduled configuration change or implementation upgrade throughout the delay.
 - [ ] Require independent review, storage-layout validation, and a fork rehearsal before executing an upgrade.
-- [ ] Publish and monitor `POST /v1/datasets/{datasetId}/challenges`; accept the versioned public evidence schema, acknowledge valid submissions within 24 hours, and preserve the exact evidence bytes at `evidenceURI`.
+- [ ] Publish and monitor `POST /v1/datasets/{datasetId}/challenges`; run the same strict validator exposed by `npm run validate:challenge-evidence`, acknowledge valid submissions within 24 hours, and preserve the exact evidence bytes at `evidenceURI`.
 - [ ] Monitor `Paused`, `Unpaused`, `WeightChallengePending`, `WeightChallengeResolved`, and every `challengeResolutionDueAt` in real time.
 - [ ] Resolve every Pending challenge within the on-chain 72-hour SLA. An overdue challenge remains fail-closed until ADMIN resolves it; there is no automatic expiry, and an SLA breach requires public status plus governance escalation.
 - [ ] Document that treasury withdrawal remains available while paused and that Timelock-only token rescue cannot withdraw recorded payment-token liabilities.

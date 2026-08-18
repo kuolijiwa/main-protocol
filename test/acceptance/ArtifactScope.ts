@@ -166,6 +166,18 @@ describe("V1 artifact and deployment scope", function () {
       "ADMIN_MULTISIG_CODE_HASH",
       "ADMIN_MULTISIG_OWNERS",
       "ADMIN_MULTISIG_THRESHOLD",
+      "ADMIN_MULTISIG_SINGLETON",
+      "ADMIN_MULTISIG_SINGLETON_CODE_HASH",
+      "ADMIN_MULTISIG_GUARD",
+      "ADMIN_MULTISIG_FALLBACK_HANDLER",
+      "must not have enabled modules",
+      "PROTOCOL_TIMELOCK_CODE_HASH",
+      "CONTRIBUTOR_REGISTRY_CODE_HASH",
+      "PROTOCOL_CONFIG_CODE_HASH",
+      "DATASET_REGISTRY_CODE_HASH",
+      "ENTITLEMENT_NFT_CODE_HASH",
+      "REVENUE_SPLITTER_PROXY_CODE_HASH",
+      "MARKETPLACE_PROXY_CODE_HASH",
     ]) {
       expect(deploymentSource.includes(productionGuard), productionGuard).to.equal(true);
       expect(verificationSource.includes(productionGuard), productionGuard).to.equal(true);
@@ -174,8 +186,28 @@ describe("V1 artifact and deployment scope", function () {
       "MARKETPLACE_IMPLEMENTATION",
       "REVENUE_SPLITTER_IMPLEMENTATION",
       "implementation address mismatch",
+      "MARKETPLACE_IMPLEMENTATION_CODE_HASH",
+      "REVENUE_SPLITTER_IMPLEMENTATION_CODE_HASH",
+      "WEIGHTS_MANIFEST_VERSION",
+      "CHALLENGE_EVIDENCE_VERSION",
+      "CHALLENGE_RESOLUTION_SLA",
+      "member set mismatch",
     ]) {
       expect(verificationSource.includes(implementationPin), implementationPin).to.equal(true);
     }
+  });
+
+  it("derives Manifest chain and Dataset bindings from the live Registry", async function () {
+    const generator = await scriptBundle("generate-weights-manifest.ts");
+    for (const requiredBinding of [
+      "ethers.provider.getNetwork()",
+      "datasetRegistry.nextDatasetId()",
+      "datasetRegistry.WEIGHTS_MANIFEST_VERSION()",
+      "DATASET_REGISTRY has no deployed code",
+      "chain ID mismatch",
+    ]) {
+      expect(generator.includes(requiredBinding), requiredBinding).to.equal(true);
+    }
+    expect(generator.includes('required("DATASET_ID")')).to.equal(false);
   });
 });

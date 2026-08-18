@@ -83,6 +83,8 @@ describe("ProtocolTimelock", function () {
     expect(await timelock.hasRole(await timelock.DEFAULT_ADMIN_ROLE(), admin.address)).to.equal(
       false,
     );
+    expect(await timelock.getRoleMemberCount(await timelock.DEFAULT_ADMIN_ROLE())).to.equal(1);
+    expect(await timelock.getRoleMember(await timelock.DEFAULT_ADMIN_ROLE(), 0)).to.equal(self);
     for (const role of [
       await timelock.PROPOSER_ROLE(),
       await timelock.EXECUTOR_ROLE(),
@@ -90,6 +92,8 @@ describe("ProtocolTimelock", function () {
     ]) {
       expect(await timelock.hasRole(role, admin.address)).to.equal(true);
       expect(await timelock.hasRole(role, deployer.address)).to.equal(false);
+      expect(await timelock.getRoleMemberCount(role)).to.equal(1);
+      expect(await timelock.getRoleMember(role, 0)).to.equal(admin.address);
     }
   });
 

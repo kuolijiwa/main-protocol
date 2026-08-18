@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+// solhint-disable-next-line max-line-length
+import {AccessControlEnumerableUpgradeable} from "@openzeppelin/contracts-upgradeable/access/extensions/AccessControlEnumerableUpgradeable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
@@ -22,7 +23,7 @@ import {IRevenueSplitter} from "./interfaces/IRevenueSplitter.sol";
 /// @notice Fixed-price Copy and Exclusive listings for Main Protocol V1.
 contract Marketplace is
     Initializable,
-    AccessControlUpgradeable,
+    AccessControlEnumerableUpgradeable,
     UUPSUpgradeable,
     ReentrancyGuardTransient,
     IMarketplace
@@ -84,6 +85,7 @@ contract Marketplace is
             revert ZeroAddress();
         }
         __AccessControl_init();
+        __AccessControlEnumerable_init();
         protocolConfig = ProtocolConfig(protocolConfig_);
         datasetRegistry = IDatasetRegistry(datasetRegistry_);
         entitlementNFT = IEntitlementNFT(entitlementNFT_);
@@ -284,27 +286,19 @@ contract Marketplace is
     }
 
     /// @dev DEFAULT_ADMIN_ROLE cannot be granted outside the fixed governance timelock.
-    function grantRole(bytes32 role, address account) public virtual override {
+    function _grantRole(bytes32 role, address account) internal virtual override returns (bool) {
         if (role == DEFAULT_ADMIN_ROLE && account != governanceTimelock) {
             revert GovernanceRoleLocked(account);
         }
-        super.grantRole(role, account);
+        return super._grantRole(role, account);
     }
 
-    /// @dev The fixed governance timelock's DEFAULT_ADMIN_ROLE cannot be revoked.
-    function revokeRole(bytes32 role, address account) public virtual override {
+    /// @dev The fixed governance timelock cannot lose DEFAULT_ADMIN_ROLE by revoke or renounce.
+    function _revokeRole(bytes32 role, address account) internal virtual override returns (bool) {
         if (role == DEFAULT_ADMIN_ROLE && account == governanceTimelock) {
             revert GovernanceRoleLocked(account);
         }
-        super.revokeRole(role, account);
-    }
-
-    /// @dev The fixed governance timelock cannot renounce DEFAULT_ADMIN_ROLE.
-    function renounceRole(bytes32 role, address account) public virtual override {
-        if (role == DEFAULT_ADMIN_ROLE && account == governanceTimelock) {
-            revert GovernanceRoleLocked(account);
-        }
-        super.renounceRole(role, account);
+        return super._revokeRole(role, account);
     }
 
     function _authorizeUpgrade(address) internal view override {

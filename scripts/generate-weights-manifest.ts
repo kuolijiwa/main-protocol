@@ -1,13 +1,9 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { id } from "ethers";
+import hre from "hardhat";
 import { buildWeightsManifest, hashWeightsManifest } from "./lib/weights-manifest.js";
-import type { WeightEntry } from "./lib/merkle-allocation.js";
-
-interface AllocationInput {
-  totalWeight: string;
-  root: string;
-  entries: WeightEntry[];
-}
+import { validateWeightAllocationDocument } from "./lib/merkle-allocation.js";
 
 function required(name: string): string {
   const value = process.env[name];
@@ -15,14 +11,33 @@ function required(name: string): string {
   return value;
 }
 
-const allocation = JSON.parse(
-  await readFile(resolve(required("ALLOCATION_FILE")), "utf8"),
-) as AllocationInput;
+const allocation = validateWeightAllocationDocument(
+  JSON.parse(await readFile(resolve(required("ALLOCATION_FILE")), "utf8")) as unknown,
+);
+const connection = await hre.network.create();
+const { ethers } = connection;
+const datasetRegistryAddress = required("DATASET_REGISTRY");
+if ((await ethers.provider.getCode(datasetRegistryAddress)) === "0x") {
+  throw new Error("DATASET_REGISTRY has no deployed code");
+}
+const datasetRegistry = await ethers.getContractAt("IDatasetRegistry", datasetRegistryAddress);
+const [network, datasetId, manifestVersion] = await Promise.all([
+  ethers.provider.getNetwork(),
+  datasetRegistry.nextDatasetId(),
+  datasetRegistry.WEIGHTS_MANIFEST_VERSION(),
+]);
+const expectedChainId = BigInt(required("EXPECTED_CHAIN_ID"));
+if (network.chainId !== expectedChainId) {
+  throw new Error(`chain ID mismatch: expected ${expectedChainId}, got ${network.chainId}`);
+}
+if (manifestVersion !== id("main-protocol.weights-manifest.v1")) {
+  throw new Error("DatasetRegistry weights Manifest version mismatch");
+}
 const manifest = buildWeightsManifest({
-  datasetId: BigInt(required("DATASET_ID")),
-  chainId: BigInt(required("EXPECTED_CHAIN_ID")),
-  datasetRegistry: required("DATASET_REGISTRY"),
-  totalWeight: BigInt(allocation.totalWeight),
+  datasetId,
+  chainId: network.chainId,
+  datasetRegistry: datasetRegistryAddress,
+  totalWeight: allocation.totalWeight,
   weightsRoot: allocation.root,
   entries: allocation.entries,
   pipelineVersion: required("PIPELINE_VERSION"),

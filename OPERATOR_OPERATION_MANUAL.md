@@ -106,6 +106,7 @@ struct RegisterParams {
 - 地址不能重复；
 - 每个权重必须大于零；
 - 每个权重不能大于 `totalWeight`；
+- `totalWeight` 和每个权重必须适配 Solidity `uint256`；
 - 所有权重之和必须严格等于 `totalWeight`；
 - Merkle Leaf 使用 `keccak256(abi.encode(address, weight))`；
 - 使用排序后的 Leaf 和排序兄弟节点计算 Merkle Root；
@@ -114,8 +115,7 @@ struct RegisterParams {
 使用项目提供的校验脚本：
 
 ```bash
-ALLOCATION_FILE=./path/to/allocation.json \
-npx hardhat run scripts/validate-merkle-allocation.ts
+ALLOCATION_FILE=./path/to/allocation.json npm run validate:allocation
 ```
 
 如果文件中提供了 `root`，脚本还会检查计算出的 Root 是否一致：
@@ -132,17 +132,20 @@ npx hardhat run scripts/validate-merkle-allocation.ts
 
 ```bash
 ALLOCATION_FILE=./path/to/allocation.json \
-DATASET_ID=<DatasetRegistry.nextDatasetId()> \
 EXPECTED_CHAIN_ID=<chain-id> \
 DATASET_REGISTRY=<registry-address> \
 PIPELINE_VERSION=<version> \
-GENERATED_AT=<ISO-8601-time> \
+GENERATED_AT=<canonical-UTC-time，例如-2026-08-18T00:00:00.000Z> \
 CONTENT_DIGEST=<bytes32-source-digest> \
 MANIFEST_OUTPUT_FILE=./weights-manifest.json \
 npm run generate:weights-manifest
 ```
 
+分配文件只允许顶层 `totalWeight`、可选 `root`、`entries`，每个 entry 只允许 `address` 和 `weight`。生成器会连接目标网络，确认实际 chain ID、DatasetRegistry 合约代码和 `WEIGHTS_MANIFEST_VERSION`，并直接读取 `nextDatasetId()`；不允许操作员手工输入 Dataset ID。它也不信任外部提供的 Root：会从严格验证后的 leaves 重新计算 Root、按地址规范排序、生成所有 Proof，再调用与公开验证器完全相同的严格校验路径。相同分配无论输入顺序如何都必须生成相同的 Manifest 数据；任何未知字段、重复/零地址、非正或超范围权重、总和错误、Root 错误、非规范时间、空 Pipeline 版本或无效内容摘要都会阻止输出。
+
 将文件发布到 IPFS、Arweave 或具有持续可用性和备份的公开存储，记录其 URI，并对最终上传的原始字节计算 `keccak256`。生成后到上链前如果 `nextDatasetId()` 已变化，必须使用新的 Dataset ID 重新生成 Manifest，不能提交旧绑定。
+
+发布后必须从独立 claimant 环境执行 `npm run verify:weights-manifest`，确认 URI、精确字节摘要、chain/Registry/Dataset 绑定、Root、完整 leaves 及每个 Proof 均可独立验证；不得只验证 Pipeline 本机生成的文件。
 
 ## 4. 注册 Dataset
 
@@ -247,6 +250,8 @@ Marketplace.listExclusiveFixed(datasetId, price)
 - 可复现的构建记录。
 
 V1 是“管理员介导的 Challenge”，不是 permissionless 链上裁决：任何人可以向公开的链下争议入口 `POST /v1/datasets/{datasetId}/challenges` 提交符合 `schemas/weight-challenge-evidence-v1.schema.json` 的公开证据文件，但只有 ADMIN 多签可以记录和裁决。证据文件原始字节的 `keccak256` 作为 `evidenceHash`，公开下载地址作为 `evidenceURI`：
+
+争议入口在接受材料前必须执行 `npm run validate:challenge-evidence`。验证器会拒绝错误的 schema、chain/Registry/Dataset/Root 绑定、零 challenger、非规范 UTC 时间、未知 reason、空摘要、重复证据 URI、零摘要、未知字段和无效 JSON；如提供 `EXPECTED_EVIDENCE_HASH`，还必须与精确原始字节匹配。
 
 ```solidity
 DatasetRegistry.recordChallenge(datasetId, evidenceHash, evidenceURI)

@@ -91,6 +91,56 @@ describe("Weights manifest v1", function () {
     expect(() => validateWeightsManifest(manifest, context)).to.throw("leaf hash version mismatch");
   });
 
+  it("rejects a supplied proof that differs from the deterministic tree", function () {
+    const manifest = validManifest();
+    expect(manifest.entries[0].proof).not.to.be.empty;
+    manifest.entries[0].proof[0] = id("corrupted-proof-node");
+    expect(() => validateWeightsManifest(manifest, context)).to.throw("proof mismatch");
+  });
+
+  it("rejects missing proofs, unknown fields, and malformed Pipeline metadata", function () {
+    const missingProof = validManifest() as unknown as {
+      entries: Array<Record<string, unknown>>;
+    };
+    delete missingProof.entries[0].proof;
+    expect(() => validateWeightsManifest(missingProof, context)).to.throw(
+      "missing required field: proof",
+    );
+
+    expect(() =>
+      validateWeightsManifest({ ...validManifest(), unexpected: true }, context),
+    ).to.throw("unsupported field");
+    expect(() =>
+      buildWeightsManifest({
+        ...context,
+        entries: vector.entries,
+        pipelineVersion: " ",
+        generatedAt: "2026-08-18T00:00:00.000Z",
+        contentDigest: id("normalized-source-dataset"),
+      }),
+    ).to.throw("pipeline version is required");
+    expect(() =>
+      buildWeightsManifest({
+        ...context,
+        entries: vector.entries,
+        pipelineVersion: "pipeline-v1.0.0",
+        generatedAt: "2026-08-18",
+        contentDigest: id("normalized-source-dataset"),
+      }),
+    ).to.throw("canonical UTC timestamp");
+  });
+
+  it("generates identical Manifest data for the same allocation in any input order", function () {
+    const reversed = buildWeightsManifest({
+      ...context,
+      entries: [...vector.entries].reverse(),
+      pipelineVersion: "pipeline-v1.0.0",
+      generatedAt: "2026-08-18T00:00:00.000Z",
+      contentDigest: id("normalized-source-dataset"),
+    });
+    expect(reversed).to.deep.equal(validManifest());
+  });
+
   it("rejects unavailable or content-digest-mismatched manifests", async function () {
     const raw = `${JSON.stringify(validManifest(), null, 2)}\n`;
     await expectRejected(

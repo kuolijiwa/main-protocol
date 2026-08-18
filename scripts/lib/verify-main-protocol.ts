@@ -1,13 +1,30 @@
 import hre from "hardhat";
+import { type BaseContract, id, keccak256 } from "ethers";
 import type { NetworkConnection } from "hardhat/types/network";
 import { upgrades } from "@openzeppelin/hardhat-upgrades";
 import {
   check,
   type Environment,
   requiredAddress,
+  requiredBytes32,
   requiredInteger,
+  sameAddressSet,
   validateExternalDeploymentInputs,
 } from "./deployment-validation.js";
+
+async function checkExactRoleMembers(
+  contract: BaseContract,
+  role: string,
+  expectedMembers: string[],
+  label: string,
+): Promise<void> {
+  const count = BigInt(await contract.getFunction("getRoleMemberCount")(role));
+  const actualMembers: string[] = [];
+  for (let index = 0n; index < count; index += 1n) {
+    actualMembers.push(String(await contract.getFunction("getRoleMember")(role, index)));
+  }
+  check(sameAddressSet(actualMembers, expectedMembers), `${label} member set mismatch`);
+}
 
 export async function verifyMainProtocol(
   connection: NetworkConnection,
@@ -25,6 +42,15 @@ export async function verifyMainProtocol(
     adminMultisig: requiredAddress(env, "ADMIN_MULTISIG"),
     treasury: requiredAddress(env, "TREASURY"),
     gatewaySigner: requiredAddress(env, "GATEWAY_SIGNER"),
+  };
+  const expectedRuntimeCodeHashes: Record<string, string> = {
+    protocolTimelock: requiredBytes32(env, "PROTOCOL_TIMELOCK_CODE_HASH"),
+    contributorRegistry: requiredBytes32(env, "CONTRIBUTOR_REGISTRY_CODE_HASH"),
+    protocolConfig: requiredBytes32(env, "PROTOCOL_CONFIG_CODE_HASH"),
+    datasetRegistry: requiredBytes32(env, "DATASET_REGISTRY_CODE_HASH"),
+    entitlementNFT: requiredBytes32(env, "ENTITLEMENT_NFT_CODE_HASH"),
+    revenueSplitter: requiredBytes32(env, "REVENUE_SPLITTER_PROXY_CODE_HASH"),
+    marketplace: requiredBytes32(env, "MARKETPLACE_PROXY_CODE_HASH"),
   };
   const expectedMarketplaceImplementation = requiredAddress(env, "MARKETPLACE_IMPLEMENTATION");
   const expectedRevenueSplitterImplementation = requiredAddress(
@@ -60,6 +86,13 @@ export async function verifyMainProtocol(
       (await ethers.provider.getCode(address)) !== "0x" || mayBeEoa,
       `${name} has no deployed code`,
     );
+    if (name in expectedRuntimeCodeHashes) {
+      check(
+        keccak256(await ethers.provider.getCode(address)).toLowerCase() ===
+          expectedRuntimeCodeHashes[name],
+        `${name} runtime code hash mismatch`,
+      );
+    }
   }
 
   const timelock = await ethers.getContractAt("ProtocolTimelock", addresses.protocolTimelock);
@@ -78,6 +111,12 @@ export async function verifyMainProtocol(
     await timelock.hasRole(await timelock.DEFAULT_ADMIN_ROLE(), addresses.protocolTimelock),
     "Timelock is not self-administered",
   );
+  await checkExactRoleMembers(
+    timelock,
+    await timelock.DEFAULT_ADMIN_ROLE(),
+    [addresses.protocolTimelock],
+    "Timelock DEFAULT_ADMIN_ROLE",
+  );
   for (const role of [
     await timelock.PROPOSER_ROLE(),
     await timelock.EXECUTOR_ROLE(),
@@ -93,6 +132,12 @@ export async function verifyMainProtocol(
         "deployer retains a ProtocolTimelock role",
       );
     }
+    await checkExactRoleMembers(
+      timelock,
+      role,
+      [addresses.adminMultisig],
+      "Timelock authority role",
+    );
   }
   if (!allowEoaAdmin) {
     check(
@@ -124,6 +169,12 @@ export async function verifyMainProtocol(
         `${contract.target} leaves DEFAULT_ADMIN_ROLE on deployer`,
       );
     }
+    await checkExactRoleMembers(
+      contract,
+      await contract.DEFAULT_ADMIN_ROLE(),
+      [addresses.protocolTimelock],
+      `${contract.target} DEFAULT_ADMIN_ROLE`,
+    );
   }
 
   for (const contract of [contributors, config, datasets, nft, splitter]) {
@@ -137,6 +188,12 @@ export async function verifyMainProtocol(
         `${contract.target} leaves ADMIN_ROLE on deployer`,
       );
     }
+    await checkExactRoleMembers(
+      contract,
+      await contract.ADMIN_ROLE(),
+      [addresses.adminMultisig],
+      `${contract.target} ADMIN_ROLE`,
+    );
   }
   if (!allowEoaAdmin) {
     check(
@@ -152,6 +209,12 @@ export async function verifyMainProtocol(
   check(
     await contributors.hasRole(contributorRole, nurtureContributor),
     "NURTURE_CONTRIBUTOR lacks CONTRIBUTOR_ROLE",
+  );
+  await checkExactRoleMembers(
+    contributors,
+    await contributors.OPERATOR_ROLE(),
+    [pipelineOperator],
+    "OPERATOR_ROLE",
   );
   check(
     (await contributors.getRoleMemberCount(contributorRole)) === 1n,
@@ -180,6 +243,20 @@ export async function verifyMainProtocol(
   check((await config.challengeWindow()) === challengeWindow, "challenge window mismatch");
   check((await config.gatewaySigner()) === addresses.gatewaySigner, "gateway signer mismatch");
   check(!(await config.paused()), "protocol is paused");
+
+  check(
+    (await datasets.WEIGHTS_MANIFEST_VERSION()) === id("main-protocol.weights-manifest.v1"),
+    "weights Manifest version mismatch",
+  );
+  check(
+    (await datasets.CHALLENGE_EVIDENCE_VERSION()) ===
+      id("main-protocol.weight-challenge-evidence.v1"),
+    "challenge evidence version mismatch",
+  );
+  check(
+    (await datasets.CHALLENGE_RESOLUTION_SLA()) === 72n * 60n * 60n,
+    "challenge resolution SLA mismatch",
+  );
 
   check(
     (await datasets.contributorRegistry()) === addresses.contributorRegistry,
@@ -246,6 +323,16 @@ export async function verifyMainProtocol(
   check(
     (await ethers.provider.getCode(revenueSplitterImplementation)) !== "0x",
     "RevenueSplitter implementation missing",
+  );
+  check(
+    keccak256(await ethers.provider.getCode(marketplaceImplementation)).toLowerCase() ===
+      requiredBytes32(env, "MARKETPLACE_IMPLEMENTATION_CODE_HASH"),
+    "Marketplace implementation runtime code hash mismatch",
+  );
+  check(
+    keccak256(await ethers.provider.getCode(revenueSplitterImplementation)).toLowerCase() ===
+      requiredBytes32(env, "REVENUE_SPLITTER_IMPLEMENTATION_CODE_HASH"),
+    "RevenueSplitter implementation runtime code hash mismatch",
   );
 
   return {

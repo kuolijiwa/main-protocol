@@ -299,6 +299,35 @@ export async function deployMainProtocol(
     await upgradesApi.erc1967.getImplementationAddress(marketplaceAddress);
   const revenueSplitterImplementation =
     await upgradesApi.erc1967.getImplementationAddress(revenueSplitterAddress);
+  const verificationCodeHashes: Environment = {
+    PROTOCOL_TIMELOCK_CODE_HASH: ethers.keccak256(
+      await ethers.provider.getCode(governanceTimelock),
+    ),
+    CONTRIBUTOR_REGISTRY_CODE_HASH: ethers.keccak256(
+      await ethers.provider.getCode(await contributorRegistry.getAddress()),
+    ),
+    PROTOCOL_CONFIG_CODE_HASH: ethers.keccak256(
+      await ethers.provider.getCode(await protocolConfig.getAddress()),
+    ),
+    DATASET_REGISTRY_CODE_HASH: ethers.keccak256(
+      await ethers.provider.getCode(await datasetRegistry.getAddress()),
+    ),
+    ENTITLEMENT_NFT_CODE_HASH: ethers.keccak256(
+      await ethers.provider.getCode(await entitlementNFT.getAddress()),
+    ),
+    REVENUE_SPLITTER_PROXY_CODE_HASH: ethers.keccak256(
+      await ethers.provider.getCode(revenueSplitterAddress),
+    ),
+    MARKETPLACE_PROXY_CODE_HASH: ethers.keccak256(
+      await ethers.provider.getCode(marketplaceAddress),
+    ),
+    MARKETPLACE_IMPLEMENTATION_CODE_HASH: ethers.keccak256(
+      await ethers.provider.getCode(marketplaceImplementation),
+    ),
+    REVENUE_SPLITTER_IMPLEMENTATION_CODE_HASH: ethers.keccak256(
+      await ethers.provider.getCode(revenueSplitterImplementation),
+    ),
+  };
 
   return {
     protocolTimelock: governanceTimelock,
@@ -326,6 +355,7 @@ export async function deployMainProtocol(
     timelockMinDelay: timelockDelay.toString(),
     marketplaceImplementation,
     revenueSplitterImplementation,
+    verificationCodeHashes,
     externalValidation: {
       ...externalValidation,
       chainId: externalValidation.chainId.toString(),

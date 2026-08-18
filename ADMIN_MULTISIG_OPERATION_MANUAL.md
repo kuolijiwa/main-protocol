@@ -86,7 +86,9 @@ ADMIN 多签负责日常运营和紧急控制，但不负责延迟治理配置�
 部署完成后，确认：
 
 - ADMIN_MULTISIG 是预期 Safe 地址；
+- Safe proxy 与 singleton 地址及两者 runtime code hash 均与独立审查值一致；
 - owner 集合和 threshold 与部署配置一致；
+- guard、fallback handler 与审查配置精确一致，且没有启用任何 module；
 - ADMIN 多签持有五个可运营合约的 `ADMIN_ROLE`；
 - ADMIN 多签不持有任何核心合约的 `DEFAULT_ADMIN_ROLE`；
 - Timelock 的 proposer、executor、canceller 角色均由该多签持有；
@@ -94,6 +96,8 @@ ADMIN 多签负责日常运营和紧急控制，但不负责延迟治理配置�
 - 初始 `CONTRIBUTOR_ROLE` 只有 `NURTURE_CONTRIBUTOR`；
 - `PIPELINE_OPERATOR` 持有 `OPERATOR_ROLE`，但不持有 `CONTRIBUTOR_ROLE`；
 - Pipeline 操作员已正确映射到 Nurture。
+- 所有 Timelock、ADMIN、OPERATOR、CONTRIBUTOR 和 `DEFAULT_ADMIN_ROLE` 都是预期的精确成员集合，不只是“包含”预期地址；
+- 所有核心合约、代理和实现 runtime code hash，以及 Manifest/Challenge 版本常量和 72 小时 SLA 均与发布清单一致。
 
 使用部署输出填充 `.env` 后运行：
 
@@ -156,7 +160,7 @@ V1 的挑战对象仅限：
 ### 6.1 记录挑战
 
 1. 从公开入口 `POST /v1/datasets/{datasetId}/challenges` 接收符合 `schemas/weight-challenge-evidence-v1.schema.json` 的证据，并在 24 小时内确认受理；
-2. 校验证据涉及目标 Dataset 的权重分配，且证据文件绑定正确的 chain、Registry、Dataset 和 Root；
+2. 使用 `npm run validate:challenge-evidence` 执行严格校验，确认精确字段、证据摘要、chain/Registry/Dataset/Root 绑定和规范时间均正确；
 3. 确认当前时间仍小于 `challengeWindowEndsAt(datasetId)`；
 4. 确认状态为 `None` 或 `Rejected`；
 5. 将完整材料发布到持续可读取的 `evidenceURI`，按原始文件字节计算非零 `evidenceHash = keccak256(raw bytes)`；
