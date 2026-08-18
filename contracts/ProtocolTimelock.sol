@@ -10,21 +10,35 @@ import {AccessControlEnumerable} from "@openzeppelin/contracts/access/extensions
 /// @notice Self-administered 48-hour governance timelock for Main Protocol V1.
 contract ProtocolTimelock is TimelockController, AccessControlEnumerable {
     uint256 public constant PROTOCOL_MIN_DELAY = 48 hours;
+    uint256 public constant TEST_MIN_DELAY = 1 minutes;
+    uint256 public immutable enforcedMinimumDelay;
 
     error ZeroAddress();
     error MinimumDelayTooShort(uint256 requestedDelay, uint256 minimumDelay);
+    error InvalidInitialDelay(uint256 requestedDelay, bool shortDelayTestMode);
     error GovernanceRoleLocked(address account);
 
     constructor(
-        address governanceMultisig
+        address governanceMultisig,
+        uint256 initialDelay,
+        bool shortDelayTestMode
     )
         TimelockController(
-            PROTOCOL_MIN_DELAY,
+            initialDelay,
             _singleton(governanceMultisig),
             _singleton(governanceMultisig),
             address(0)
         )
-    {}
+    {
+        if (shortDelayTestMode) {
+            if (initialDelay < TEST_MIN_DELAY || initialDelay >= PROTOCOL_MIN_DELAY) {
+                revert InvalidInitialDelay(initialDelay, true);
+            }
+        } else if (initialDelay < PROTOCOL_MIN_DELAY) {
+            revert InvalidInitialDelay(initialDelay, false);
+        }
+        enforcedMinimumDelay = initialDelay;
+    }
 
     function _singleton(address account) private pure returns (address[] memory accounts) {
         if (account == address(0)) revert ZeroAddress();
@@ -34,8 +48,8 @@ contract ProtocolTimelock is TimelockController, AccessControlEnumerable {
 
     /// @notice Allows governance to increase the delay but never reduce it below 48 hours.
     function updateDelay(uint256 newDelay) public override {
-        if (newDelay < PROTOCOL_MIN_DELAY) {
-            revert MinimumDelayTooShort(newDelay, PROTOCOL_MIN_DELAY);
+        if (newDelay < enforcedMinimumDelay) {
+            revert MinimumDelayTooShort(newDelay, enforcedMinimumDelay);
         }
         super.updateDelay(newDelay);
     }

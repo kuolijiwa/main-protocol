@@ -38,6 +38,22 @@ export async function deployMainProtocol(
   const allowEoaAdmin =
     env.ALLOW_EOA_ADMIN === "true" &&
     (isSimulatedNetwork(connection) || env.ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST === "true");
+  const configuredTimelockDelay =
+    env.TIMELOCK_DELAY_SECONDS === undefined
+      ? 48n * 60n * 60n
+      : requiredInteger(env, "TIMELOCK_DELAY_SECONDS", 1n);
+  const shortDelayTestMode =
+    connection.networkName === "baseSepolia" &&
+    env.ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST === "true" &&
+    configuredTimelockDelay < 48n * 60n * 60n;
+  if (shortDelayTestMode && configuredTimelockDelay < 60n) {
+    throw new Error("TIMELOCK_DELAY_SECONDS must be at least 60 seconds in short-delay test mode");
+  }
+  if (!shortDelayTestMode && configuredTimelockDelay < 48n * 60n * 60n) {
+    throw new Error(
+      "TIMELOCK_DELAY_SECONDS must be at least 48 hours outside short-delay test mode",
+    );
+  }
   const externalValidation = await validateExternalDeploymentInputs(
     connection,
     env,
@@ -46,7 +62,11 @@ export async function deployMainProtocol(
     deployer.address,
   );
 
-  const protocolTimelock = await ethers.deployContract("ProtocolTimelock", [adminMultisig]);
+  const protocolTimelock = await ethers.deployContract("ProtocolTimelock", [
+    adminMultisig,
+    configuredTimelockDelay,
+    shortDelayTestMode,
+  ]);
   await protocolTimelock.waitForDeployment();
   const governanceTimelock = await protocolTimelock.getAddress();
 
@@ -162,7 +182,10 @@ export async function deployMainProtocol(
   const executorRole = await protocolTimelock.EXECUTOR_ROLE();
   const cancellerRole = await protocolTimelock.CANCELLER_ROLE();
   const defaultAdminRole = await protocolTimelock.DEFAULT_ADMIN_ROLE();
-  check(timelockDelay === 48n * 60n * 60n, "timelock delay is not 48 hours");
+  check(
+    timelockDelay === configuredTimelockDelay,
+    `timelock delay is not ${configuredTimelockDelay} seconds`,
+  );
   check(
     await protocolTimelock.hasRole(proposerRole, adminMultisig),
     "ADMIN_MULTISIG lacks Timelock proposer role",

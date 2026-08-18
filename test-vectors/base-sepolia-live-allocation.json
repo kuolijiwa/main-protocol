@@ -1,0 +1,17 @@
+{
+  "totalWeight": "1000",
+  "entries": [
+    {
+      "address": "0x357B3bA3582f724F8c39A34AcB6922fBC6625778",
+      "weight": "300"
+    },
+    {
+      "address": "0x533D5Ce8797711c2AaB8E0d20D7DBba09d06D010",
+      "weight": "600"
+    },
+    {
+      "address": "0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04",
+      "weight": "100"
+    }
+  ]
+}

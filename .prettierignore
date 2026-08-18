@@ -9,3 +9,5 @@ package-lock.json
 .google-doc-bridge/
 protocol_technical_design.md
 MAIN_PROTOCOL_DEVELOPMENT_SPEC.md
+# Published live-test Manifest bytes are hash-committed on chain; formatting them changes the commitment.
+test-vectors/base-sepolia-live-manifest-*.json

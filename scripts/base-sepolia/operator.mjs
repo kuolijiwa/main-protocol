@@ -16,7 +16,10 @@ import {
 
 const args = parseArgs();
 const ctx = await createContext(args);
-const operatorAddress = address(env("PIPELINE_OPERATOR"), "PIPELINE_OPERATOR");
+const operatorAddress = address(
+  env("TEST_OPERATOR_ADDRESS", env("PIPELINE_OPERATOR")),
+  "TEST_OPERATOR_ADDRESS",
+);
 const reporter = new Reporter("operator", ctx);
 await reporter.step("Operator、Contributor 映射、nextDatasetId 和注册前查询", () =>
   protocolSnapshot(ctx, env("TEST_DATASET_ID")),

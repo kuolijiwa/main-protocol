@@ -14,7 +14,10 @@ import {
 
 const args = parseArgs();
 const ctx = await createContext(args);
-const contributor = address(env("NURTURE_CONTRIBUTOR"), "NURTURE_CONTRIBUTOR");
+const contributor = address(
+  env("TEST_CONTRIBUTOR_ADDRESS", env("NURTURE_CONTRIBUTOR")),
+  "TEST_CONTRIBUTOR_ADDRESS",
+);
 const reporter = new Reporter("contributor", ctx);
 await reporter.step("Contributor 身份、Dataset、Listing、收益和权限查询", () =>
   protocolSnapshot(ctx, env("TEST_DATASET_ID")),

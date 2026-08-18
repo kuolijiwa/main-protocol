@@ -3,6 +3,7 @@ import {
   connect,
   createContext,
   env,
+  expectRevert,
   fetchManifest,
   findManifestEntry,
   parseArgs,
@@ -94,6 +95,20 @@ else {
           ),
           claimantTokenBalance: await ctx.contracts.token.balanceOf(signer.address),
         }));
+      }
+      if (args.has("expect-reject")) {
+        const claim = connect(ctx.contracts.splitter, signer);
+        await reporter.step("预期 Claim 拒绝路径", () =>
+          expectRevert(
+            () =>
+              claim.claim.staticCall(
+                datasetId,
+                uint(entry.weight, "manifest weight", { positive: true }),
+                entry.proof,
+              ),
+            "claim expected rejection",
+          ),
+        );
       }
     }
   }

@@ -77,10 +77,7 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
         address indexed contributor,
         bytes32 contentHash,
         bytes32 weightsRoot,
-        uint256 totalWeight,
-        string weightsURI,
-        bytes32 weightsManifestHash,
-        bytes32 weightsManifestVersion
+        uint256 totalWeight
     );
     event WeightChallengePending(
         uint256 indexed datasetId,
@@ -162,16 +159,7 @@ contract DatasetRegistry is FixedGovernanceAccessControl, IDatasetRegistry {
         weightsManifestHash[datasetId] = p.weightsManifestHash;
         challengeWindowEndsAt[datasetId] = block.timestamp + protocolConfig.challengeWindow();
 
-        emit DatasetRegistered(
-            datasetId,
-            contributor,
-            p.contentHash,
-            p.weightsRoot,
-            p.totalWeight,
-            p.weightsURI,
-            p.weightsManifestHash,
-            WEIGHTS_MANIFEST_VERSION
-        );
+        emit DatasetRegistered(datasetId, contributor, p.contentHash, p.weightsRoot, p.totalWeight);
     }
 
     function getDataset(uint256 datasetId) external view override returns (Dataset memory) {

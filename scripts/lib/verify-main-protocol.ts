@@ -70,6 +70,20 @@ export async function verifyMainProtocol(
   const allowEoaAdmin =
     env.ALLOW_EOA_ADMIN === "true" &&
     (isSimulatedNetwork(connection) || env.ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST === "true");
+  const expectedTimelockDelay =
+    env.TIMELOCK_DELAY_SECONDS === undefined
+      ? 48n * 60n * 60n
+      : requiredInteger(env, "TIMELOCK_DELAY_SECONDS", 1n);
+  const shortDelayTestMode =
+    connection.networkName === "baseSepolia" &&
+    env.ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST === "true" &&
+    expectedTimelockDelay < 48n * 60n * 60n;
+  check(
+    shortDelayTestMode ? expectedTimelockDelay >= 60n : expectedTimelockDelay >= 48n * 60n * 60n,
+    shortDelayTestMode
+      ? "short-delay test Timelock must be at least 60 seconds"
+      : "production Timelock delay must be at least 48 hours",
+  );
   const externalValidation = await validateExternalDeploymentInputs(
     connection,
     env,
@@ -109,7 +123,10 @@ export async function verifyMainProtocol(
   const splitter = await ethers.getContractAt("RevenueSplitter", addresses.revenueSplitter);
   const market = await ethers.getContractAt("Marketplace", addresses.marketplace);
 
-  check((await timelock.getMinDelay()) >= 48n * 60n * 60n, "Timelock delay is below 48 hours");
+  check(
+    (await timelock.getMinDelay()) >= expectedTimelockDelay,
+    `Timelock delay is below the configured minimum of ${expectedTimelockDelay} seconds`,
+  );
   check(
     await timelock.hasRole(await timelock.DEFAULT_ADMIN_ROLE(), addresses.protocolTimelock),
     "Timelock is not self-administered",

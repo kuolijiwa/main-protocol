@@ -418,8 +418,9 @@ export async function strictDeploymentChecks(ctx) {
     throw new Error("Marketplace DatasetRegistry wiring mismatch");
   if ((await c.market.revenueSplitter()).toLowerCase() !== addresses.revenueSplitter.toLowerCase())
     throw new Error("Marketplace RevenueSplitter wiring mismatch");
-  if ((await c.timelock.getMinDelay()) < 172800n)
-    throw new Error("ProtocolTimelock delay is below 48 hours");
+  const expectedTimelockDelay = BigInt(env("TIMELOCK_DELAY_SECONDS", "172800"));
+  if ((await c.timelock.getMinDelay()) < expectedTimelockDelay)
+    throw new Error(`ProtocolTimelock delay is below ${expectedTimelockDelay} seconds`);
 
   const timelockAdmin = await c.timelock.DEFAULT_ADMIN_ROLE();
   const timelockAdmins = await roleMembers(c.timelock, timelockAdmin);

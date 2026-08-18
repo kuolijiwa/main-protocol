@@ -1,0 +1,40 @@
+{
+  "schema": "main-protocol.weights-manifest.v1",
+  "datasetId": "5",
+  "chainId": "84532",
+  "datasetRegistry": "0x9defdfBafed8383C36809CAa1b522D7a3758fe08",
+  "leafEncoding": "keccak256(abi.encode(address,uint256))",
+  "pairHashing": "sorted-keccak256;promote-unpaired",
+  "totalWeight": "1000",
+  "weightsRoot": "0x300c01aa6d9899ef6f86750d5b755af784a6fd6c9405051f2babbddd480273d9",
+  "entries": [
+    {
+      "address": "0x357B3bA3582f724F8c39A34AcB6922fBC6625778",
+      "weight": "300",
+      "proof": [
+        "0x7542f96ce95ed7a6da3c8f87fbb8aff91d13b876b60225a07f3d1ee0305e3e87",
+        "0xc1a61be0f61393b7e7dd49298bdf020bb55a42fa1782f59cddeff4a862eeeca7"
+      ]
+    },
+    {
+      "address": "0x533D5Ce8797711c2AaB8E0d20D7DBba09d06D010",
+      "weight": "600",
+      "proof": [
+        "0x0ef8d8a97110e2169a9adec78c5669e276561f8604edd2051103f2a7ff95e0de"
+      ]
+    },
+    {
+      "address": "0x66Fa1F4C192eF29DB8fEcf8eCaF3ec0d36079C04",
+      "weight": "100",
+      "proof": [
+        "0x1730b786b86a9a8918adab57c4d675ebd3999ad5adf2e30331785c7e5dacdbe9",
+        "0xc1a61be0f61393b7e7dd49298bdf020bb55a42fa1782f59cddeff4a862eeeca7"
+      ]
+    }
+  ],
+  "pipeline": {
+    "version": "base-sepolia-live-exclusive-v1",
+    "generatedAt": "2026-08-18T10:30:00.000Z",
+    "contentDigest": "0x4444444444444444444444444444444444444444444444444444444444444444"
+  }
+}

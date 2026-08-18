@@ -14,9 +14,11 @@ import {
 const args = parseArgs();
 const ctx = await createContext(args);
 const treasury = address(env("TREASURY"), "TREASURY");
+const testTreasury = address(env("TEST_TREASURY_ADDRESS", treasury), "TEST_TREASURY_ADDRESS");
 const reporter = new Reporter("treasury", ctx);
 await reporter.step("Treasury、Splitter 账本、支付 Token backing 查询", async () => ({
   treasury,
+  testTreasury,
   treasuryTokenBalance: await ctx.contracts.token.balanceOf(treasury),
   splitterTokenBalance: await ctx.contracts.token.balanceOf(ctx.addresses.revenueSplitter),
   treasuryBalance: await ctx.contracts.splitter.treasuryBalance(),
@@ -27,7 +29,7 @@ if (args.has("withdraw")) {
   await writeGuard(ctx, args, "Treasury withdrawal");
   if (!env("TREASURY_PRIVATE_KEY"))
     throw new Error("TREASURY_PRIVATE_KEY is required for --withdraw");
-  const signer = signerFor(ctx, "TREASURY_PRIVATE_KEY", treasury);
+  const signer = signerFor(ctx, "TREASURY_PRIVATE_KEY", testTreasury);
   await reporter.step("withdrawTreasury", () =>
     sendTx(
       ctx,

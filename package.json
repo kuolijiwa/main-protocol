@@ -26,6 +26,7 @@
     "validate:challenge-evidence": "hardhat run scripts/validate-weight-challenge-evidence.ts",
     "live:base-sepolia:inspect": "node --env-file=.env scripts/base-sepolia/inspect.mjs",
     "live:base-sepolia:admin": "node --env-file=.env scripts/base-sepolia/admin.mjs",
+    "live:base-sepolia:setup-test-accounts": "node --env-file=.env scripts/base-sepolia/setup-test-accounts.mjs",
     "live:base-sepolia:timelock": "node --env-file=.env scripts/base-sepolia/timelock.mjs",
     "live:base-sepolia:contributor": "node --env-file=.env scripts/base-sepolia/contributor.mjs",
     "live:base-sepolia:operator": "node --env-file=.env scripts/base-sepolia/operator.mjs",

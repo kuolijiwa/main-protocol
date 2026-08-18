@@ -183,7 +183,8 @@ DatasetRegistry.registerDataset(RegisterParams params)
 交易成功后记录：
 
 - `datasetId`；
-- `DatasetRegistered` 事件；
+- 原文五参数 `DatasetRegistered` 事件；
+- 通过 Registry getter 查询并校验 Manifest URI、digest 和 version；
 - `contentHash`；
 - `weightsRoot`；
 - `totalWeight`；
@@ -215,7 +216,7 @@ challengeWindowEndsAt[datasetId]
 注册成功后，将以下信息交给贡献者或市场服务：
 
 - `datasetId`；
-- `DatasetRegistered` 交易哈希；
+- 发射 `DatasetRegistered` 的注册交易哈希，以及 Manifest getter 校验结果；
 - `getDataset(datasetId)` 返回结果；
 - `challengeWindowEndsAt(datasetId)`；
 - `weightsURI` 和 `weightsManifestHash`；

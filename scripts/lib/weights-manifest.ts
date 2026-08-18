@@ -1,4 +1,6 @@
 import { getAddress, isHexString, keccak256, toUtf8Bytes, ZeroHash } from "ethers";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import { validateWeightAllocation } from "./merkle-allocation.js";
 import {
@@ -205,6 +207,8 @@ export async function defaultManifestFetcher(uri: string): Promise<Uint8Array> {
     fetchURI = `${gateway.replace(/\/$/, "")}/ipfs/${uri.slice("ipfs://".length)}`;
   } else if (uri.startsWith("ar://")) {
     fetchURI = `https://arweave.net/${uri.slice("ar://".length)}`;
+  } else if (uri.startsWith("file://")) {
+    return new Uint8Array(await readFile(fileURLToPath(uri)));
   }
   if (!fetchURI.startsWith("https://") && !fetchURI.startsWith("http://")) {
     throw new Error(`unsupported manifest URI: ${uri}`);

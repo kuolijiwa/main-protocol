@@ -11,7 +11,7 @@ const DELAY = 48n * 60n * 60n;
 describe("ProtocolTimelock", function () {
   async function deployFixture() {
     const [deployer, admin, token, treasury, gateway] = await ethers.getSigners();
-    const timelock = await ethers.deployContract("ProtocolTimelock", [admin.address]);
+    const timelock = await ethers.deployContract("ProtocolTimelock", [admin.address, DELAY, false]);
     const config = await ethers.deployContract("ProtocolConfig", [
       token.address,
       250,
@@ -26,7 +26,7 @@ describe("ProtocolTimelock", function () {
 
   async function upgradeFixture() {
     const [deployer, admin, token, treasury, gateway] = await ethers.getSigners();
-    const timelock = await ethers.deployContract("ProtocolTimelock", [admin.address]);
+    const timelock = await ethers.deployContract("ProtocolTimelock", [admin.address, DELAY, false]);
     const governance = await timelock.getAddress();
     const contributors = await ethers.deployContract("ContributorRegistry", [
       governance,
@@ -99,9 +99,25 @@ describe("ProtocolTimelock", function () {
 
   it("rejects a zero governance multisig", async function () {
     const factory = await ethers.getContractFactory("ProtocolTimelock");
-    await expect(factory.deploy(ethers.ZeroAddress)).to.be.revertedWithCustomError(
+    await expect(factory.deploy(ethers.ZeroAddress, DELAY, false)).to.be.revertedWithCustomError(
       factory,
       "ZeroAddress",
+    );
+  });
+
+  it("allows a one-minute delay only in explicit short-delay test mode", async function () {
+    const [, admin] = await ethers.getSigners();
+    const factory = await ethers.getContractFactory("ProtocolTimelock");
+    const shortDelay = 60n;
+    const timelock = await factory.deploy(admin.address, shortDelay, true);
+
+    expect(await timelock.getMinDelay()).to.equal(shortDelay);
+    await expect(
+      factory.deploy(admin.address, shortDelay - 1n, true),
+    ).to.be.revertedWithCustomError(factory, "InvalidInitialDelay");
+    await expect(factory.deploy(admin.address, shortDelay, false)).to.be.revertedWithCustomError(
+      factory,
+      "InvalidInitialDelay",
     );
   });
 

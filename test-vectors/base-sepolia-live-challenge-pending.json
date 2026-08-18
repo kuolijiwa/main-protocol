@@ -1,0 +1,17 @@
+{
+  "schema": "main-protocol.weight-challenge-evidence.v1",
+  "datasetId": "3",
+  "chainId": "84532",
+  "datasetRegistry": "0x9defdfBafed8383C36809CAa1b522D7a3758fe08",
+  "weightsRoot": "0x300c01aa6d9899ef6f86750d5b755af784a6fd6c9405051f2babbddd480273d9",
+  "challenger": "0x357B3bA3582f724F8c39A34AcB6922fBC6625778",
+  "submittedAt": "2026-08-18T10:11:00.000Z",
+  "reason": "other",
+  "summary": "Base Sepolia live-test evidence for pending challenge and upheld invalidation paths.",
+  "artifacts": [
+    {
+      "uri": "file:///Volumes/work/Main%20Protocol%20design/test-vectors/base-sepolia-live-manifest-challenge-pending.json",
+      "digest": "0x7777777777777777777777777777777777777777777777777777777777777777"
+    }
+  ]
+}

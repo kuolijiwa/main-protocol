@@ -4,24 +4,26 @@
 
 本手册对应 `scripts/base-sepolia/*.mjs`，用于对已经部署到 Base Sepolia（Chain ID `84532`）的 Main Protocol V1 合约执行真实 RPC 验收。
 
+> 2026-08-18 的现有地址部署早于原文五参数 `DatasetRegistered` 事件的恢复。由于 `DatasetRegistry` 不可升级，现有地址仍发射旧的扩展事件，不能作为当前源码的部署验收结果。当前源码必须重新部署、更新全部地址/代码哈希并重新执行本手册；在此之前，现有地址和报告仅作为历史测试记录。
+
 脚本使用 Node.js + `ethers`，不会启动 Hardhat 本地链，也不会把测试结果误认为 Solidity 单元测试。默认模式只读并使用 `eth_call` 模拟拒绝分支；任何广播交易都必须同时满足：命令包含 `--write --confirm`，并且未提交的 `.env` 中有 `ALLOW_BASE_SEPOLIA_WRITES=true`。
 
 当前 V1 只支持固定价 Copy/Exclusive，不包含拍卖、`bid`、Crowdsourcing、Arcade、Gateway 服务实现或链上 permissionless challenge。Gateway 脚本只验收链上 entitlement 和配置，不伪造 Gateway 签名或发放 payload。
 
 ## 2. 脚本和角色覆盖
 
-| 脚本              | 对应角色/对象              | 只读查询                                                                                     | 可选真实写入或验收动作                                                                                    |
-| ----------------- | -------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `inspect.mjs`     | 发布验收                   | 网络、代码、配置、wiring、全部角色、Safe、Token、Dataset、Listing、Revenue、NFT              | 严格部署验收，不写链                                                                                      |
-| `admin.mjs`       | ADMIN Safe                 | 五个运营合约的 `ADMIN_ROLE`、暂停状态、挑战状态、Safe owner/threshold/modules/guard/fallback | 生成 `pause/unpause/recordChallenge/resolveChallenge` Safe calldata；不把 Safe owner 私钥当作 Safe 调用者 |
-| `timelock.mjs`    | ProtocolTimelock / 治理    | 48 小时延迟、self-admin、Proposer/Executor/Canceller、配置和 UUPS 治理地址                   | 生成配置目标 calldata；实际 schedule/execute 必须走 Safe + Timelock                                       |
-| `contributor.mjs` | CONTRIBUTOR                | 身份、Dataset、两种 Listing、价格、状态、Revenue、NFT、权限                                  | `listCopy`、`listExclusiveFixed`、两种 `delist`                                                           |
-| `operator.mjs`    | OPERATOR / Pipeline        | Operator 角色、映射 Contributor、`nextDatasetId`、注册前配置、Dataset/Manifest commitment    | `registerDataset`，并查询注册结果                                                                         |
-| `buyer.mjs`       | Buyer                      | Token 余额/allowance、Listing/价格、Dataset 状态、Copy/Exclusive token ID、`hasAccess`       | `approve`、`buyCopy`、`buyExclusive`；错误价格拒绝路径使用 `eth_call`                                     |
-| `claimant.mjs`    | Sub-contributor / Claimant | Manifest URI/hash/root、`claimed`、`claimable`、Dataset 隔离余额、Splitter backing           | 下载并独立验证 Manifest；`RevenueSplitter.claim`                                                          |
-| `treasury.mjs`    | Treasury                   | Treasury 地址和余额、Splitter treasury/contributor 账本、Token backing、完整快照             | `withdrawTreasury`                                                                                        |
-| `gateway.mjs`     | Gateway 链下服务边界       | Gateway signer、Dataset payload URI、指定主体 `hasAccess`                                    | 不发交易                                                                                                  |
-| `run-all.mjs`     | 全部角色                   | 按顺序运行上述全部脚本                                                                       | 透传同一组参数；不建议批量广播写入                                                                        |
+| 脚本              | 对应角色/对象              | 只读查询                                                                                     | 可选真实写入或验收动作                                                                           |
+| ----------------- | -------------------------- | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| `inspect.mjs`     | 发布验收                   | 网络、代码、配置、wiring、全部角色、Safe、Token、Dataset、Listing、Revenue、NFT              | 严格部署验收，不写链                                                                             |
+| `admin.mjs`       | ADMIN Safe 或临时 EOA      | 五个运营合约的 `ADMIN_ROLE`、暂停状态、挑战状态、Safe owner/threshold/modules/guard/fallback | Safe 模式生成 calldata；临时 EOA 模式可直接测试 `pause/unpause/recordChallenge/resolveChallenge` |
+| `timelock.mjs`    | ProtocolTimelock / 治理    | 48 小时延迟、self-admin、Proposer/Executor/Canceller、配置和 UUPS 治理地址                   | 生成配置目标 calldata；实际 schedule/execute 必须走 Safe + Timelock                              |
+| `contributor.mjs` | CONTRIBUTOR                | 身份、Dataset、两种 Listing、价格、状态、Revenue、NFT、权限                                  | `listCopy`、`listExclusiveFixed`、两种 `delist`                                                  |
+| `operator.mjs`    | OPERATOR / Pipeline        | Operator 角色、映射 Contributor、`nextDatasetId`、注册前配置、Dataset/Manifest commitment    | `registerDataset`，并查询注册结果                                                                |
+| `buyer.mjs`       | Buyer                      | Token 余额/allowance、Listing/价格、Dataset 状态、Copy/Exclusive token ID、`hasAccess`       | `approve`、`buyCopy`、`buyExclusive`；错误价格拒绝路径使用 `eth_call`                            |
+| `claimant.mjs`    | Sub-contributor / Claimant | Manifest URI/hash/root、`claimed`、`claimable`、Dataset 隔离余额、Splitter backing           | 下载并独立验证 Manifest；`RevenueSplitter.claim`                                                 |
+| `treasury.mjs`    | Treasury                   | Treasury 地址和余额、Splitter treasury/contributor 账本、Token backing、完整快照             | `withdrawTreasury`                                                                               |
+| `gateway.mjs`     | Gateway 链下服务边界       | Gateway signer、Dataset payload URI、指定主体 `hasAccess`                                    | 不发交易                                                                                         |
+| `run-all.mjs`     | 全部角色                   | 按顺序运行上述全部脚本                                                                       | 透传同一组参数；不建议批量广播写入                                                               |
 
 每个脚本都会输出 `PASS/FAIL/SKIP`，并写入 `reports/base-sepolia-live/<role>-<timestamp>.json`。报告中只包含地址、查询值、交易哈希和错误信息，不写入私钥。
 
@@ -69,7 +71,17 @@ EXPECT_INITIAL_CONTRIBUTOR_ONLY=true
 
 地址必须来自同一笔部署和同一条链。不能把本地 Hardhat、Base Mainnet 或另一套 Base Sepolia 地址混用。
 
-真实写入才需要相应角色私钥：
+当前如果暂时使用普通账号作为 ADMIN，需要额外配置：
+
+```dotenv
+ALLOW_BASE_SEPOLIA_EOA_ADMIN_TEST=true
+ALLOW_BASE_SEPOLIA_WRITES=true
+ADMIN_PRIVATE_KEY=...
+```
+
+`ADMIN_PRIVATE_KEY` 对应的地址必须等于 `ADMIN_MULTISIG`，并且该普通账号已经持有合约中的 `ADMIN_ROLE`。如果未配置 `ADMIN_PRIVATE_KEY`，脚本会临时使用 `DEPLOYER_PRIVATE_KEY`，但仍会强制校验地址必须等于 `ADMIN_MULTISIG`。这只是 Base Sepolia 临时测试模式，生产验收必须恢复为 Safe。
+
+其他真实写入才需要相应角色私钥：
 
 ```dotenv
 CONTRIBUTOR_PRIVATE_KEY=...
@@ -121,7 +133,69 @@ npm run live:base-sepolia:gateway
 
 没有 `TEST_DATASET_ID` 时，协议级查询仍会执行；Dataset、Listing、Manifest、购买和 Claim 级查询会明确显示 `SKIP`，不会伪造通过。
 
-### 第三步：Safe 管理员和治理 calldata
+### 第三步：执行测试账号链上配置
+
+5 个账号获得 ETH 后，使用普通 ADMIN 账号执行幂等初始化脚本：
+
+```bash
+npm run live:base-sepolia:setup-test-accounts -- --write --confirm
+```
+
+脚本会：
+
+- 检查 5 个私钥与地址一致；
+- 检查每个账号的 Gas 余额；
+- 向测试 Contributor 授予 `CONTRIBUTOR_ROLE`；
+- 向测试 Operator 授予 `OPERATOR_ROLE`；
+- 设置 `test Operator -> test Contributor` 映射；
+- 查询角色成员和映射结果；
+- 将 `TEST_OPERATOR_ADDRESS`、`TEST_CONTRIBUTOR_ADDRESS`、`TEST_TREASURY_ADDRESS` 写入本地 `.env`。
+
+该脚本不会修改协议 Treasury。`ProtocolConfig.treasury` 只能通过 `ProtocolTimelock` 修改，并受 48 小时延迟保护。新 Claimant 也不会自动进入已有 Dataset 的权重树，必须在新 Dataset Manifest 中包含该地址。
+
+测试账号配置完成后，Contributor 和 Operator 脚本会优先使用 `TEST_CONTRIBUTOR_ADDRESS`、`TEST_OPERATOR_ADDRESS`；原始部署的 Nurture/Pipeline 地址仍保留用于部署验收。
+
+### 第四步：普通账号 ADMIN 测试
+
+普通账号模式下，先运行严格验收：
+
+```bash
+npm run live:base-sepolia:inspect
+```
+
+在 `.env` 设置 `ALLOW_BASE_SEPOLIA_EOA_ADMIN_TEST=true` 后，`inspect` 会允许 EOA 通过临时测试门槛，但仍会检查所有核心合约、wiring、Timelock、角色集合、初始 Contributor 和代码哈希。
+
+测试可逆的暂停/恢复流程：
+
+```bash
+npm run live:base-sepolia:admin -- --pause-test --write --confirm
+```
+
+该命令依次执行 `pause()`、查询 `paused == true`、执行 `unpause()`、查询 `paused == false`。
+
+测试管理员介导 Challenge 并驳回：
+
+```dotenv
+TEST_DATASET_ID=1
+TEST_CHALLENGE_EVIDENCE_HASH=0x...
+TEST_CHALLENGE_EVIDENCE_URI=https://...
+```
+
+```bash
+npm run live:base-sepolia:admin -- --challenge-test --reject-challenge --write --confirm
+```
+
+该命令只适用于仍在挑战窗口内、且状态为 `None` 的专用测试 Dataset。Challenge 证据必须先通过仓库的离线校验，不能使用虚构的 hash/URI。
+
+如果需要单独裁决已有 Pending Challenge：
+
+```bash
+npm run live:base-sepolia:admin -- --resolve-challenge --write --confirm
+```
+
+默认 `TEST_CHALLENGE_UPHELD=false`。设置为 `true` 会永久使 Dataset 权重失效并关闭 Listing，只能在专用测试 Dataset 上执行。
+
+### 第五步：Safe 管理员和治理 calldata
 
 先只生成 calldata：
 
@@ -140,7 +214,16 @@ TEST_CHALLENGE_EVIDENCE_URI=https://...
 
 Evidence 必须先通过仓库的严格校验脚本，并且 `recordChallenge` 只能在挑战窗口结束前执行。V1 是 ADMIN 介导 Challenge：任何人链下提交证据，只有 ADMIN 记录和裁决；脚本不会声称实现 permissionless challenge。
 
-### 第四步：Operator 注册验收
+当前普通账号测试可以直接执行 1 分钟 Timelock 的真实 schedule/execute 流程，将后续新 Dataset 的挑战窗口临时调整为 60 秒：
+
+```bash
+ALLOW_BASE_SEPOLIA_WRITES=true \
+npm run live:base-sepolia:timelock -- --set-challenge-window 60 --write --confirm
+```
+
+脚本会等待链上 `getMinDelay()` 到期后再执行，不会绕过 Timelock。该配置只影响之后注册的 Dataset，已经注册的 Dataset 保留原挑战窗口。
+
+### 第六步：Operator 注册验收
 
 先准备并公开发布 v1 Manifest。注册字段必须与链上前置 `nextDatasetId()` 一致。建议先只读确认，然后使用一次性测试 Dataset：
 
@@ -169,7 +252,7 @@ npm run verify:weights-manifest
 
 脚本会使用链上 `nextDatasetId` 作为默认 expected ID；如果出现并发注册导致 ID 改变，必须重新生成 Manifest，不得重用旧文件。
 
-### 第五步：Contributor Listing 验收
+### 第七步：Contributor Listing 验收
 
 Contributor 只能为自己的 Dataset 创建或撤销 Listing。使用已注册但尚未销售的验收 Dataset：
 
@@ -201,7 +284,7 @@ npm run live:base-sepolia:contributor -- --delist-exclusive --write --confirm
 
 V1 价格是创建 Listing 时固定的；修改价格必须先 delist，再以新价格创建。Listing 建立后会记录 `maxFeeBps`，费率升高会使旧 Listing 拒绝购买，费率降低不会损害卖家。
 
-### 第六步：Buyer 购买和拒绝分支
+### 第八步：Buyer 购买和拒绝分支
 
 先查询余额、授权和 Listing：
 
@@ -232,7 +315,7 @@ npm run live:base-sepolia:buyer -- --buy-exclusive --write --confirm
 
 该操作是终态销售，建议只在专用 Dataset 上执行。不要在承载真实用户资金的 Dataset 上运行购买写测试。
 
-### 第七步：Claimant Manifest 和 Claim
+### 第九步：Claimant Manifest 和 Claim
 
 Claimant 查询：
 
@@ -256,9 +339,15 @@ npm run live:base-sepolia:claimant
 npm run live:base-sepolia:claimant -- --claim --write --confirm
 ```
 
+对于 Challenge `Upheld` 或仍处于 `Pending` 的 Dataset，使用预期拒绝模式：
+
+```bash
+npm run live:base-sepolia:claimant -- --expect-reject
+```
+
 该命令只使用 Manifest 中与签名者地址匹配的 leaf 和 proof。Claim 成功后会再次检查 `claimed`、`claimable` 和 Token 余额。由于 RevenueSplitter 按 Dataset 维护 `unclaimedRevenue`，验收报告应确认某 Dataset 的 claim 不会减少另一个 Dataset 的隔离余额。
 
-### 第八步：Treasury 和 Gateway
+### 第十步：Treasury 和 Gateway
 
 Treasury 读取：
 

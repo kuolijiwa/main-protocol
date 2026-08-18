@@ -188,10 +188,15 @@ describe("DatasetRegistry", function () {
           params.contentHash,
           params.weightsRoot,
           params.totalWeight,
-          params.weightsURI,
-          params.weightsManifestHash,
-          await datasetRegistry.WEIGHTS_MANIFEST_VERSION(),
         );
+      const sourceEventTopic = ethers.id(
+        "DatasetRegistered(uint256,address,bytes32,bytes32,uint256)",
+      );
+      const extendedEventTopic = ethers.id(
+        "DatasetRegistered(uint256,address,bytes32,bytes32,uint256,string,bytes32,bytes32)",
+      );
+      expect(receipt!.logs.some((log) => log.topics[0] === sourceEventTopic)).to.equal(true);
+      expect(receipt!.logs.some((log) => log.topics[0] === extendedEventTopic)).to.equal(false);
 
       const dataset = await datasetRegistry.getDataset(1);
       expect(dataset.id).to.equal(1);
