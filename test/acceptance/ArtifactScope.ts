@@ -154,7 +154,7 @@ describe("V1 artifact and deployment scope", function () {
     }
     expect(
       deploymentSource.includes(
-        "ALLOW_EOA_ADMIN=true is permitted only on a local simulated network",
+        "ALLOW_EOA_ADMIN=true is permitted only on a local simulated network unless the explicit Base Sepolia test override is enabled",
       ),
     ).to.equal(true);
     expect(verificationSource.includes("getMinDelay()) >= 48n * 60n * 60n")).to.equal(true);

@@ -82,13 +82,22 @@ export function isSimulatedNetwork(connection: NetworkConnection): boolean {
 
 export function validateAdminMode(
   simulated: boolean,
+  networkName: string,
   env: Environment,
   adminMultisig: string,
   deployerAddress: string,
 ): void {
   const allowEoaAdmin = env.ALLOW_EOA_ADMIN === "true";
-  if (allowEoaAdmin && !simulated) {
-    throw new Error("ALLOW_EOA_ADMIN=true is permitted only on a local simulated network");
+  const allowBaseSepoliaTestEoa = env.ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST === "true";
+  const persistentTestOverride =
+    !simulated && networkName === "baseSepolia" && allowBaseSepoliaTestEoa;
+  if (allowBaseSepoliaTestEoa && !allowEoaAdmin) {
+    throw new Error("ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST=true requires ALLOW_EOA_ADMIN=true");
+  }
+  if (allowEoaAdmin && !simulated && !persistentTestOverride) {
+    throw new Error(
+      "ALLOW_EOA_ADMIN=true is permitted only on a local simulated network unless the explicit Base Sepolia test override is enabled",
+    );
   }
   if (allowEoaAdmin && getAddress(deployerAddress) !== getAddress(adminMultisig)) {
     throw new Error("ALLOW_EOA_ADMIN=true requires ADMIN_MULTISIG to equal the local deployer");
@@ -168,7 +177,10 @@ export async function validateExternalDeploymentInputs(
 ): Promise<ExternalValidationResult> {
   const { ethers } = connection;
   const allowEoaAdmin = env.ALLOW_EOA_ADMIN === "true";
-  validateAdminMode(isSimulatedNetwork(connection), env, adminMultisig, deployerAddress);
+  const simulated = isSimulatedNetwork(connection);
+  const allowBaseSepoliaTestEoa = env.ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST === "true";
+  const eoaAdminMode = allowEoaAdmin && (simulated || allowBaseSepoliaTestEoa);
+  validateAdminMode(simulated, connection.networkName, env, adminMultisig, deployerAddress);
   const chainId = (await ethers.provider.getNetwork()).chainId;
   validateNetworkIdentity(isSimulatedNetwork(connection), connection.networkName, chainId, env);
 
@@ -205,7 +217,7 @@ export async function validateExternalDeploymentInputs(
   const expectedDecimals = requiredInteger(env, "PAYMENT_TOKEN_DECIMALS", 0n, 255n);
   check(paymentTokenDecimals === expectedDecimals, "PAYMENT_TOKEN decimals mismatch");
 
-  if (allowEoaAdmin) {
+  if (eoaAdminMode) {
     return { chainId, paymentTokenCodeHash, paymentTokenDecimals };
   }
 

@@ -4,6 +4,7 @@ import { upgrades } from "@openzeppelin/hardhat-upgrades";
 import {
   check,
   type Environment,
+  isSimulatedNetwork,
   requiredAddress,
   requiredInteger,
   validateExternalDeploymentInputs,
@@ -34,7 +35,9 @@ export async function deployMainProtocol(
   const upgradesApi = await upgrades(hre, connection);
   const [deployer] = await ethers.getSigners();
   const deployerIsAdmin = deployer.address.toLowerCase() === adminMultisig.toLowerCase();
-  const allowEoaAdmin = env.ALLOW_EOA_ADMIN === "true";
+  const allowEoaAdmin =
+    env.ALLOW_EOA_ADMIN === "true" &&
+    (isSimulatedNetwork(connection) || env.ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST === "true");
   const externalValidation = await validateExternalDeploymentInputs(
     connection,
     env,

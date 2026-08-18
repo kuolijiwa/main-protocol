@@ -5,6 +5,7 @@ import { upgrades } from "@openzeppelin/hardhat-upgrades";
 import {
   check,
   type Environment,
+  isSimulatedNetwork,
   requiredAddress,
   requiredBytes32,
   requiredInteger,
@@ -66,7 +67,9 @@ export async function verifyMainProtocol(
     throw new Error("NURTURE_CONTRIBUTOR and PIPELINE_OPERATOR must be distinct addresses");
   }
 
-  const allowEoaAdmin = env.ALLOW_EOA_ADMIN === "true";
+  const allowEoaAdmin =
+    env.ALLOW_EOA_ADMIN === "true" &&
+    (isSimulatedNetwork(connection) || env.ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST === "true");
   const externalValidation = await validateExternalDeploymentInputs(
     connection,
     env,

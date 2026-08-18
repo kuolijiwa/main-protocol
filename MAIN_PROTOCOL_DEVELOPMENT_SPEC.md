@@ -2,7 +2,7 @@
 
 ## Status and source of truth
 
-- Status: V1 fixed-price Main Protocol core contracts are implemented; deployment to a persistent network and external audit remain pending.
+- Status: V1 fixed-price Main Protocol core contracts are implemented. A temporary EOA-admin deployment to Base Sepolia (84532) completed and passed post-deployment verification on 2026-08-18; production Safe execution and external audit remain pending.
 - Target stack: Solidity contracts developed and tested with Hardhat.
 - Source of truth: `protocol_technical_design.md` in this directory. Source rules are preserved unless a rule is explicitly superseded by a confirmed V1 decision below. Deferred source features are identified as such and must not be implemented accidentally.
 - Target environment: EVM L2 (Base, Arbitrum, or OP). Heavy computation and data stay off-chain; the chain records commitments, rights, and settlement.
@@ -21,7 +21,7 @@
 | Artifact/deployment/network/Merkle/Manifest/Challenge/deferred-scope assertions | Passing | 39 |
 | **Total** | **Full regression passing** | **154** |
 
-The deployment and post-deployment verification scripts share the same importable, integration-tested implementation and are TypeScript-checked. Persistent-network identity and rejection branches are directly unit-tested without broadcasting a deployment. An official Safe v1.5.0 Singleton/proxy integration test requires two owner signatures, checks nonce replay rejection, executes all six onboarding/wiring transactions, and then runs full deployment verification; focused tests also reject unexpected singleton/code, modules, guard, fallback handler, code hashes, and extra privileged role members. Hardhat compilation, formatting, Solidity lint, 98.59% line coverage, 98.55% statement coverage, gas reporting, dependency gates, and the 154-test regression suite pass. Slither 0.11.5 completes with no high-severity finding; reviewed non-high findings are recorded in `security/SLITHER_REVIEW.md`. Within the confirmed V1 decisions and explicitly deferred scope, the current source has no known mismatch with this development specification. A real persistent-network deployment, production Safe execution, public challenge-intake/Gateway operations, and an independent smart-contract audit remain release gates.
+The deployment and post-deployment verification scripts share the same importable, integration-tested implementation and are TypeScript-checked. Persistent-network identity and rejection branches are directly unit-tested without broadcasting a deployment. An official Safe v1.5.0 Singleton/proxy integration test requires two owner signatures, checks nonce replay rejection, executes all six onboarding/wiring transactions, and then runs full deployment verification; focused tests also reject unexpected singleton/code, modules, guard, fallback handler, code hashes, and extra privileged role members. Hardhat compilation, formatting, Solidity lint, 98.59% line coverage, 98.55% statement coverage, gas reporting, dependency gates, and the 154-test regression suite pass. Slither 0.11.5 completes with no high-severity finding; reviewed non-high findings are recorded in `security/SLITHER_REVIEW.md`. Within the confirmed V1 decisions and explicitly deferred scope, the current source has no known mismatch with this development specification. The temporary Base Sepolia EOA deployment is not a production release; production Safe execution, public challenge-intake/Gateway operations, and an independent smart-contract audit remain release gates.
 
 ## Confirmed V1 decisions
 
@@ -804,6 +804,18 @@ scripts/
     merkle-allocation.ts
     weights-manifest.ts
     verify-main-protocol.ts
+  base-sepolia/
+    inspect.mjs
+    admin.mjs
+    timelock.mjs
+    contributor.mjs
+    operator.mjs
+    buyer.mjs
+    claimant.mjs
+    treasury.mjs
+    gateway.mjs
+    run-all.mjs
+    lib/common.mjs
 .github/workflows/
   ci.yml
 security/
@@ -820,6 +832,8 @@ hardhat.config.ts
 .env.example
 ```
 
+Base Sepolia 的真实 RPC 角色验收脚本、环境字段、写入保护、Safe/Timelock calldata 流程和报告判定规则见 [`BASE_SEPOLIA_LIVE_TESTING.md`](BASE_SEPOLIA_LIVE_TESTING.md)。
+
 Deployment order is fixed:
 
 1. Select `baseSepolia` (`84532`) for the test network or a reviewed `base` (`8453`), `arbitrum` (`42161`), or `optimism` (`10`) production network; pin the same value in `EXPECTED_CHAIN_ID`; confirm EIP-1153 support; validate the reviewed payment token's runtime code hash, decimals, and ERC-20 read interface; and validate the Safe-compatible production multisig's proxy code hash, singleton address/code hash, exact owners/threshold, exact guard/fallback-handler configuration, and absence of enabled modules. Deployment rejects any named-network/canonical-chain mismatch.
@@ -832,7 +846,7 @@ Deployment order is fixed:
 8. Through the operational multisig, call `setMarketplaceOnce` on `DatasetRegistry`, `EntitlementNFT`, and `RevenueSplitter` with the Marketplace proxy address. `scripts/deploy.ts` emits the ordered onboarding and wiring calls together as `adminTransactions` when the deployer is not the multisig.
 9. Run `scripts/verify-deployment.ts` with the emitted deployer, implementation addresses, and independently reviewed runtime code hashes supplied through `.env`. Verification checks the external dependency pins, canonical network identity, Safe security configuration, every core/proxy/implementation code hash, Timelock minimum delay and exact role-member sets, every core contract's exact admin-role sets, exact one-member initial Contributor and Operator allowlists, Nurture/Pipeline assignment, Manifest/challenge schema constants and 72-hour SLA, dependency/wiring addresses, exact proxy implementation addresses, immutable payment token, fee, treasury, gateway signer, challenge window, and pause state. It accepts a governance-increased delay but fails below 48 hours, on any extra privileged role member, or on any address/code/configuration change.
 
-Deployment and verification consume the variables documented in `.env.example`. `ADMIN_MULTISIG_OWNERS` is a comma-separated exact owner set, `ADMIN_MULTISIG_THRESHOLD` must be at least `2` and no greater than that set's size, and the singleton/guard/fallback-handler values must match the reviewed Safe configuration exactly; V1 rejects every enabled Safe module. `NURTURE_CONTRIBUTOR` and `PIPELINE_OPERATOR` must be nonzero and distinct. `ALLOW_EOA_ADMIN=true` is supported by both deployment and verification only on Hardhat's local simulated network, requires `ADMIN_MULTISIG == DEPLOYER_ADDRESS`, and is forbidden on persistent networks. `npm run audit:deps` is part of CI: the complete toolchain must have no High/Critical advisories and production dependencies must have no Moderate-or-higher advisories, with the rationale for any remaining Low toolchain advisories recorded in `security/DEPENDENCY_AUDIT.md`.
+Deployment and verification consume the variables documented in `.env.example`. `ADMIN_MULTISIG_OWNERS` is a comma-separated exact owner set, `ADMIN_MULTISIG_THRESHOLD` must be at least `2` and no greater than that set's size, and the singleton/guard/fallback-handler values must match the reviewed Safe configuration exactly; V1 rejects every enabled Safe module. `NURTURE_CONTRIBUTOR` and `PIPELINE_OPERATOR` must be nonzero and distinct. `ALLOW_EOA_ADMIN=true` requires `ADMIN_MULTISIG == DEPLOYER_ADDRESS`; it is supported by default only on Hardhat's local simulated network. The explicit `ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST=true` override is a temporary test-only exception for Base Sepolia verification, must never be used for production funds, and must be removed when the reviewed Safe is configured. `npm run audit:deps` is part of CI: the complete toolchain must have no High/Critical advisories and production dependencies must have no Moderate-or-higher advisories, with the rationale for any remaining Low toolchain advisories recorded in `security/DEPENDENCY_AUDIT.md`.
 
 ### External production release gates
 

@@ -82,14 +82,26 @@ describe("Deployment validation", function () {
     const deployer = "0x1111111111111111111111111111111111111111";
     const other = "0x2222222222222222222222222222222222222222";
     expect(() =>
-      validateAdminMode(true, { ALLOW_EOA_ADMIN: "true" }, deployer, deployer),
+      validateAdminMode(true, "hardhat", { ALLOW_EOA_ADMIN: "true" }, deployer, deployer),
     ).not.to.throw();
     expect(() =>
-      validateAdminMode(false, { ALLOW_EOA_ADMIN: "true" }, deployer, deployer),
-    ).to.throw("permitted only on a local simulated network");
-    expect(() => validateAdminMode(true, { ALLOW_EOA_ADMIN: "true" }, other, deployer)).to.throw(
-      "requires ADMIN_MULTISIG to equal the local deployer",
-    );
+      validateAdminMode(false, "baseSepolia", { ALLOW_EOA_ADMIN: "true" }, deployer, deployer),
+    ).to.throw("explicit Base Sepolia test override");
+    expect(() =>
+      validateAdminMode(true, "hardhat", { ALLOW_EOA_ADMIN: "true" }, other, deployer),
+    ).to.throw("requires ADMIN_MULTISIG to equal the local deployer");
+    expect(() =>
+      validateAdminMode(
+        false,
+        "baseSepolia",
+        {
+          ALLOW_EOA_ADMIN: "true",
+          ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST: "true",
+        },
+        deployer,
+        deployer,
+      ),
+    ).not.to.throw();
   });
 
   it("rejects payment-token code-hash and decimals mismatches", async function () {
