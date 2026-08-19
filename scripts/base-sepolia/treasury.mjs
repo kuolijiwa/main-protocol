@@ -8,6 +8,7 @@ import {
   Reporter,
   sendTx,
   signerFor,
+  expectRevert,
   writeGuard,
 } from "./lib/common.mjs";
 
@@ -25,6 +26,15 @@ await reporter.step("Treasury、Splitter 账本、支付 Token backing 查询", 
   contributorBalance: await ctx.contracts.splitter.contributorBalance(),
   fullSnapshot: await protocolSnapshot(ctx, env("TEST_DATASET_ID")),
 }));
+if (args.has("negative-tests")) {
+  await reporter.step("无 treasuryBalance 时 withdrawTreasury 拒绝", async () => {
+    const result = await expectRevert(
+      () => ctx.contracts.splitter.getFunction("withdrawTreasury").staticCall(),
+      "withdrawTreasury without treasury balance",
+    );
+    return { expectedRevert: result.reverted, reason: result.reason };
+  });
+}
 if (args.has("withdraw")) {
   await writeGuard(ctx, args, "Treasury withdrawal");
   if (!env("TREASURY_PRIVATE_KEY"))

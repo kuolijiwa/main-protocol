@@ -70,6 +70,23 @@ export async function verifyMainProtocol(
   const allowEoaAdmin =
     env.ALLOW_EOA_ADMIN === "true" &&
     (isSimulatedNetwork(connection) || env.ALLOW_EOA_ADMIN_ON_BASE_SEPOLIA_TEST === "true");
+  const liveTestState =
+    connection.networkName === "baseSepolia" &&
+    env.ALLOW_BASE_SEPOLIA_WRITES === "true" &&
+    env.VERIFY_LIVE_TEST_STATE === "true";
+  const testOperator =
+    liveTestState && env.TEST_OPERATOR_ADDRESS
+      ? requiredAddress(env, "TEST_OPERATOR_ADDRESS")
+      : undefined;
+  const testContributor =
+    liveTestState && env.TEST_CONTRIBUTOR_ADDRESS
+      ? requiredAddress(env, "TEST_CONTRIBUTOR_ADDRESS")
+      : undefined;
+  if (liveTestState && (testOperator === undefined || testContributor === undefined)) {
+    throw new Error(
+      "VERIFY_LIVE_TEST_STATE=true requires TEST_OPERATOR_ADDRESS and TEST_CONTRIBUTOR_ADDRESS",
+    );
+  }
   const expectedTimelockDelay =
     env.TIMELOCK_DELAY_SECONDS === undefined
       ? 48n * 60n * 60n
@@ -230,20 +247,34 @@ export async function verifyMainProtocol(
     await contributors.hasRole(contributorRole, nurtureContributor),
     "NURTURE_CONTRIBUTOR lacks CONTRIBUTOR_ROLE",
   );
+  const expectedOperatorMembers = [pipelineOperator, ...(testOperator ? [testOperator] : [])];
+  const expectedContributorMembers = [
+    nurtureContributor,
+    ...(testContributor ? [testContributor] : []),
+  ];
   await checkExactRoleMembers(
     contributors,
     await contributors.OPERATOR_ROLE(),
-    [pipelineOperator],
-    "OPERATOR_ROLE",
+    expectedOperatorMembers,
+    liveTestState ? "OPERATOR_ROLE in live test state" : "OPERATOR_ROLE",
   );
-  check(
-    (await contributors.getRoleMemberCount(contributorRole)) === 1n,
-    "CONTRIBUTOR_ROLE must have exactly one initial member",
-  );
-  check(
-    (await contributors.getRoleMember(contributorRole, 0n)) === nurtureContributor,
-    "NURTURE_CONTRIBUTOR must be the sole initial CONTRIBUTOR_ROLE member",
-  );
+  if (liveTestState) {
+    await checkExactRoleMembers(
+      contributors,
+      contributorRole,
+      expectedContributorMembers,
+      "CONTRIBUTOR_ROLE in live test state",
+    );
+  } else {
+    check(
+      (await contributors.getRoleMemberCount(contributorRole)) === 1n,
+      "CONTRIBUTOR_ROLE must have exactly one initial member",
+    );
+    check(
+      (await contributors.getRoleMember(contributorRole, 0n)) === nurtureContributor,
+      "NURTURE_CONTRIBUTOR must be the sole initial CONTRIBUTOR_ROLE member",
+    );
+  }
   check(
     await contributors.hasRole(await contributors.OPERATOR_ROLE(), pipelineOperator),
     "PIPELINE_OPERATOR lacks OPERATOR_ROLE",
@@ -256,6 +287,16 @@ export async function verifyMainProtocol(
     (await contributors.operatorContributor(pipelineOperator)) === nurtureContributor,
     "PIPELINE_OPERATOR is not assigned to NURTURE_CONTRIBUTOR",
   );
+  if (testOperator && testContributor) {
+    check(
+      (await contributors.operatorContributor(testOperator)) === testContributor,
+      "TEST_OPERATOR_ADDRESS is not assigned to TEST_CONTRIBUTOR_ADDRESS",
+    );
+    check(
+      !(await contributors.hasRole(contributorRole, testOperator)),
+      "TEST_OPERATOR_ADDRESS must not hold CONTRIBUTOR_ROLE",
+    );
+  }
 
   check((await config.paymentToken()) === addresses.paymentToken, "payment token mismatch");
   check((await config.feeBps()) === feeBps, "fee mismatch");
@@ -357,6 +398,7 @@ export async function verifyMainProtocol(
 
   return {
     verified: true,
+    verificationMode: liveTestState ? "base-sepolia-live-test-state" : "deployment-initial-state",
     marketplaceImplementation,
     revenueSplitterImplementation,
     timelockMinDelay: (await timelock.getMinDelay()).toString(),

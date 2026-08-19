@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "main-protocol-web-runtime-v1",
+  "release": {
+    "deploymentId": "baseSepolia-20260819063141666-45676406",
+    "environment": "testnet",
+    "testOnly": true,
+    "status": "current-verified",
+    "writeEnabled": true,
+    "reason": "隔离浏览器 E2E 测试部署：EOA 管理员、60 秒 challenge window、60 秒 Timelock；不作为 Safe 生产基线。"
+  },
+  "network": {
+    "name": "Base Sepolia E2E Testnet",
+    "chainId": 84532,
+    "rpcUrl": "https://base-sepolia-rpc.publicnode.com",
+    "explorerUrl": "https://sepolia.basescan.org",
+    "recordBlock": 45676406,
+    "indexerStartBlock": 45676405
+  },
+  "addresses": {
+    "protocolTimelock": "0x40F78ED480C14d2570ab33FE3c26445198ac543a",
+    "contributorRegistry": "0x79a7C342e0af04DCC22de5070afFbB7c14ab99a8",
+    "protocolConfig": "0x9Dd1EB6af12E7672F0EcBe612B6042227D515e5E",
+    "datasetRegistry": "0xbFb167F60F6425910DB2da27d2AFa543801fe042",
+    "entitlementNFT": "0xBD9ee1967576929889A2Dea204F31f6e0e10d747",
+    "revenueSplitterProxy": "0x568beE244b6BDdAB7Fd58Ef8C3Bc390C7d1d08B1",
+    "marketplaceProxy": "0xB29bBe8C654a4bA22601E609b10bFcE0aE8b75FB",
+    "paymentToken": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "adminAuthority": "0xb72f8504366bF6D2b166810Be9c58A0f99c85147",
+    "treasury": "0xc380b67a8e1A9E108c8AEF6dbE8b7bA77Da16A5D",
+    "gatewaySigner": "0x533D5Ce8797711c2AaB8E0d20D7DBba09d06D010",
+    "nurtureContributor": "0x357B3bA3582f724F8c39A34AcB6922fBC6625778",
+    "pipelineOperator": "0xAdcC77CEC1B9a953fcbCfc656783b04852759dBB"
+  },
+  "abiBaseUrl": "../ABI"
+}

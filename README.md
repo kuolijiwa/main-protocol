@@ -6,7 +6,7 @@ Main Protocol 是面向数据资产的 EVM 市场与结算协议。固定价 V1 
 
 重计算、数据打包、加密、Manifest 发布和密钥交付保留在链下；链上只保存可验证承诺、销售状态、访问权益和资金账本。
 
-> 当前状态：固定价 V1 合约、测试、部署与验证工具已经实现。2026-08-18 使用临时 EOA 管理员完成的 Base Sepolia 部署早于原文五参数 `DatasetRegistered` 事件恢复，因而不再代表当前 bytecode；当前源码必须重新部署和验证。生产 Safe、多签 onboarding/wiring、独立智能合约审计、Gateway/Pipeline 运营验收仍是发布门槛。
+> 当前状态：固定价 V1 合约、测试、部署与验证工具已经实现。当前 Base Sepolia 测试部署已恢复原文五参数 `DatasetRegistered` 事件并通过 `base-sepolia-live-test-state` 验收；它仍使用 test-only EOA 和 60 秒 Timelock。生产 Safe、多签 onboarding/wiring、独立智能合约审计、Gateway/Pipeline 运营验收仍是发布门槛。
 
 ## 目录
 
@@ -307,24 +307,25 @@ test -e .env || cp .env.example .env
 
 ## 常用命令
 
-| 命令                                                       | 作用                                                       |
-| ---------------------------------------------------------- | ---------------------------------------------------------- |
-| `npm run compile`                                          | 编译 Solidity 合约。                                       |
-| `npm test`                                                 | 执行全部 Hardhat 测试。                                    |
-| `npm run coverage`                                         | 执行覆盖率测试。                                           |
-| `npm run gas`                                              | 生成 Gas 统计。                                            |
-| `npm run typecheck`                                        | TypeScript 静态检查。                                      |
-| `npm run lint:sol`                                         | Solidity lint。                                            |
-| `npm run format:check`                                     | 检查 Prettier 格式。                                       |
-| `npm run audit:deps`                                       | 执行开发工具链和生产依赖审计门槛。                         |
-| `npm run ci`                                               | 格式、lint、类型、依赖、allocation vector 与覆盖率总门槛。 |
-| `npm run deploy -- --network <network>`                    | 部署协议。                                                 |
-| `npm run verify:deployment -- --network <network>`         | 对已部署协议执行严格链上验证。                             |
-| `npm run validate:allocation`                              | 严格校验 Pipeline allocation。                             |
-| `npm run generate:weights-manifest -- --network <network>` | 从 allocation 和链上上下文生成 Manifest。                  |
-| `npm run verify:weights-manifest -- --network <network>`   | 下载并对照链上 commitment 验证 Manifest。                  |
-| `npm run validate:challenge-evidence`                      | 校验 Challenge evidence 和可选 commitment。                |
-| `npm run clean`                                            | 清理 Hardhat 产物。                                        |
+| 命令                                                       | 作用                                                              |
+| ---------------------------------------------------------- | ----------------------------------------------------------------- |
+| `npm run compile`                                          | 编译 Solidity 合约。                                              |
+| `npm test`                                                 | 执行全部 Hardhat 测试。                                           |
+| `npm run coverage`                                         | 执行覆盖率测试。                                                  |
+| `npm run gas`                                              | 生成 Gas 统计。                                                   |
+| `npm run typecheck`                                        | TypeScript 静态检查。                                             |
+| `npm run lint:sol`                                         | Solidity lint。                                                   |
+| `npm run format:check`                                     | 检查 Prettier 格式。                                              |
+| `npm run audit:deps`                                       | 执行生产依赖审计门槛（部署产物无 Node.js 运行时）。               |
+| `npm run audit:deps:full`                                  | 检查完整开发工具链；当前已知无修复的 Hardhat 间接告警会使其失败。 |
+| `npm run ci`                                               | 格式、lint、类型、依赖、allocation vector 与覆盖率总门槛。        |
+| `npm run deploy -- --network <network>`                    | 部署协议。                                                        |
+| `npm run verify:deployment -- --network <network>`         | 对已部署协议执行严格链上验证。                                    |
+| `npm run validate:allocation`                              | 严格校验 Pipeline allocation。                                    |
+| `npm run generate:weights-manifest -- --network <network>` | 从 allocation 和链上上下文生成 Manifest。                         |
+| `npm run verify:weights-manifest -- --network <network>`   | 下载并对照链上 commitment 验证 Manifest。                         |
+| `npm run validate:challenge-evidence`                      | 校验 Challenge evidence 和可选 commitment。                       |
+| `npm run clean`                                            | 清理 Hardhat 产物。                                               |
 
 也可使用 `test:<module>` 命令单独运行 ContributorRegistry、ProtocolConfig、DatasetRegistry、EntitlementNFT、RevenueSplitter 或 Marketplace 测试，详见 `package.json`。
 
@@ -487,11 +488,11 @@ npm run live:base-sepolia:setup-test-accounts -- --write --confirm
 当前开发规范记录的基线：
 
 - 156 个自动化测试全部通过；
-- Line coverage：98.61%；
+- Line coverage：98.59%；
 - Statement coverage：98.57%；
 - Slither 0.11.5：无 High severity finding；
 - 生产依赖审计：0 漏洞；
-- 完整开发工具链：无 Critical/High/Moderate，剩余 Low 已记录；
+- 生产依赖审计：0 个 Moderate/High/Critical；完整开发工具链另有已记录的无修复 Hardhat 间接告警，不得宣称工具链审计全绿；
 - Official Safe 集成测试要求 2/2 owner 签名，验证 nonce replay 拒绝，并执行 6 笔 onboarding/wiring 交易。
 
 CI 工作流位于 `.github/workflows/ci.yml`。依赖策略和静态分析处置分别记录在：
@@ -526,6 +527,17 @@ security/                     发布安全清单、依赖和 Slither 审查
 ```
 
 ## 相关文档
+
+## Web 控制台（阶段 1）
+
+Web 控制台位于 [`web/`](web/)；完整规划、角色矩阵、模块流程和验收门槛见 [`WEB_DEVELOPMENT_PLAN.md`](WEB_DEVELOPMENT_PLAN.md)。
+
+```bash
+npm run web:test
+npm run web:dev
+```
+
+然后访问 `http://localhost:4173/web/`。当前配置绑定已验证的 Base Sepolia 测试部署并允许 test-only 写入；生产环境必须重新配置 Safe、Timelock 和运营账户后才能开启生产写入。
 
 | 文档                                        | 内容                                            |
 | ------------------------------------------- | ----------------------------------------------- |

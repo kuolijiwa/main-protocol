@@ -6,7 +6,7 @@ Main Protocol is an EVM marketplace and settlement protocol for data assets. The
 
 Heavy computation, data packaging, encryption, Manifest publication, and key delivery remain off-chain. The contracts store verifiable commitments, sale state, access entitlements, and settlement accounting.
 
-> Current status: the fixed-price V1 contracts, tests, deployment tooling, and verification tooling are implemented. The Base Sepolia deployment completed with a temporary EOA administrator on 2026-08-18 predates restoration of the source-defined five-parameter `DatasetRegistered` event and no longer represents the current bytecode; the current source requires a fresh deployment and verification. A production Safe, actual multisig onboarding/wiring execution, an independent smart-contract audit, and Gateway/Pipeline operational acceptance remain release gates.
+> Current status: the fixed-price V1 contracts, tests, deployment tooling, and verification tooling are implemented. The current Base Sepolia test deployment includes the source-defined five-parameter `DatasetRegistered` event and passes the `base-sepolia-live-test-state` verification. It still uses a test-only EOA and a 60-second Timelock. A production Safe, actual multisig onboarding/wiring execution, an independent smart-contract audit, and Gateway/Pipeline operational acceptance remain release gates.
 
 ## Contents
 
@@ -307,24 +307,25 @@ Never commit private keys, Safe owner information, Gateway keys, or the real `.e
 
 ## Commands
 
-| Command                                                    | Purpose                                                                    |
-| ---------------------------------------------------------- | -------------------------------------------------------------------------- |
-| `npm run compile`                                          | Compile Solidity contracts.                                                |
-| `npm test`                                                 | Run the complete Hardhat test suite.                                       |
-| `npm run coverage`                                         | Run coverage tests.                                                        |
-| `npm run gas`                                              | Generate gas statistics.                                                   |
-| `npm run typecheck`                                        | Run TypeScript static checks.                                              |
-| `npm run lint:sol`                                         | Lint Solidity.                                                             |
-| `npm run format:check`                                     | Check Prettier formatting.                                                 |
-| `npm run audit:deps`                                       | Apply development-toolchain and production dependency audit gates.         |
-| `npm run ci`                                               | Run format, lint, type, dependency, allocation-vector, and coverage gates. |
-| `npm run deploy -- --network <network>`                    | Deploy the protocol.                                                       |
-| `npm run verify:deployment -- --network <network>`         | Strictly verify an existing deployment.                                    |
-| `npm run validate:allocation`                              | Strictly validate a Pipeline allocation.                                   |
-| `npm run generate:weights-manifest -- --network <network>` | Generate a Manifest using allocation and live-chain context.               |
-| `npm run verify:weights-manifest -- --network <network>`   | Download and validate a Manifest against its on-chain commitment.          |
-| `npm run validate:challenge-evidence`                      | Validate Challenge evidence and an optional commitment.                    |
-| `npm run clean`                                            | Remove Hardhat build products.                                             |
+| Command                                                    | Purpose                                                                                                         |
+| ---------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `npm run compile`                                          | Compile Solidity contracts.                                                                                     |
+| `npm test`                                                 | Run the complete Hardhat test suite.                                                                            |
+| `npm run coverage`                                         | Run coverage tests.                                                                                             |
+| `npm run gas`                                              | Generate gas statistics.                                                                                        |
+| `npm run typecheck`                                        | Run TypeScript static checks.                                                                                   |
+| `npm run lint:sol`                                         | Lint Solidity.                                                                                                  |
+| `npm run format:check`                                     | Check Prettier formatting.                                                                                      |
+| `npm run audit:deps`                                       | Apply the production dependency gate (the artifact has no Node.js runtime).                                     |
+| `npm run audit:deps:full`                                  | Audit the full development toolchain; the known unfixed Hardhat transitive advisory currently fails this check. |
+| `npm run ci`                                               | Run format, lint, type, dependency, allocation-vector, and coverage gates.                                      |
+| `npm run deploy -- --network <network>`                    | Deploy the protocol.                                                                                            |
+| `npm run verify:deployment -- --network <network>`         | Strictly verify an existing deployment.                                                                         |
+| `npm run validate:allocation`                              | Strictly validate a Pipeline allocation.                                                                        |
+| `npm run generate:weights-manifest -- --network <network>` | Generate a Manifest using allocation and live-chain context.                                                    |
+| `npm run verify:weights-manifest -- --network <network>`   | Download and validate a Manifest against its on-chain commitment.                                               |
+| `npm run validate:challenge-evidence`                      | Validate Challenge evidence and an optional commitment.                                                         |
+| `npm run clean`                                            | Remove Hardhat build products.                                                                                  |
 
 The `test:<module>` commands run focused ContributorRegistry, ProtocolConfig, DatasetRegistry, EntitlementNFT, RevenueSplitter, or Marketplace tests; see `package.json`.
 
@@ -487,11 +488,11 @@ Each script emits `PASS/FAIL/SKIP` and writes a private-key-free JSON report und
 The current development-specification baseline records:
 
 - 156 passing automated tests;
-- 98.61% line coverage;
+- 98.59% line coverage;
 - 98.57% statement coverage;
 - Slither 0.11.5 with no High-severity finding;
 - zero production dependency vulnerabilities;
-- no Critical/High/Moderate advisory in the complete development toolchain, with remaining Low findings documented;
+- zero Moderate/High/Critical production dependency advisories; the full development toolchain has a documented unfixed Hardhat transitive advisory and must not be described as fully clean;
 - an official Safe integration test requiring 2/2 owner signatures, rejecting nonce replay, and executing all six onboarding/wiring transactions.
 
 CI is defined in `.github/workflows/ci.yml`. Dependency policy and static-analysis dispositions are documented in:
@@ -525,6 +526,17 @@ security/                     Release checklist, dependency policy, and Slither 
 ```
 
 ## Documentation
+
+## Web Console (Phase 1)
+
+The Web console is under [`web/`](web/). The complete plan, role matrix, module flows, and acceptance gates are documented in [`WEB_DEVELOPMENT_PLAN.md`](WEB_DEVELOPMENT_PLAN.md).
+
+```bash
+npm run web:test
+npm run web:dev
+```
+
+Then open `http://localhost:4173/web/`. The current configuration binds the verified Base Sepolia test deployment and permits test-only writes. Production writes require a Safe, production Timelock, and production operational accounts.
 
 | Document                                    | Purpose                                                                          |
 | ------------------------------------------- | -------------------------------------------------------------------------------- |

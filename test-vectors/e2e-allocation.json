@@ -1,0 +1,14 @@
+{
+  "totalWeight": "100",
+  "root": "0x9301227d6c5d615583a7363c89447b066d405eb5c5cd4a7020fd4c2493ce2b0d",
+  "entries": [
+    {
+      "address": "0x533D5Ce8797711c2AaB8E0d20D7DBba09d06D010",
+      "weight": "60"
+    },
+    {
+      "address": "0x1111111111111111111111111111111111111111",
+      "weight": "40"
+    }
+  ]
+}

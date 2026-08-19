@@ -1,0 +1,35 @@
+{
+  "schemaVersion": "main-protocol-web-runtime-v1",
+  "release": {
+    "deploymentId": "baseSepolia-20260819052231325-45674331",
+    "environment": "testnet",
+    "testOnly": true,
+    "status": "current-verified",
+    "writeEnabled": true,
+    "reason": "当前部署使用官方 Safe 2/2、48 小时 Timelock，并已完成 onboarding/wiring 和严格部署验证。"
+  },
+  "network": {
+    "name": "Base Sepolia Testnet",
+    "chainId": 84532,
+    "rpcUrl": "https://base-sepolia-rpc.publicnode.com",
+    "explorerUrl": "https://sepolia.basescan.org",
+    "recordBlock": 45674331,
+    "indexerStartBlock": 45674330
+  },
+  "addresses": {
+    "protocolTimelock": "0xB00B541363D627C32729aBc1d37F20F2b22Ad17D",
+    "contributorRegistry": "0x60BB968Cb12E510e5f627Aa05D12D4eCD7F7307D",
+    "protocolConfig": "0x7e9924d27e7102309F6F4d8E5dEaB1F758dA0516",
+    "datasetRegistry": "0xE742851c264c9e52B3F34691aFd3f80a03dc0B68",
+    "entitlementNFT": "0x8d1044288b3a406a63bAEAc83278FB31E9eC8ABf",
+    "revenueSplitterProxy": "0xe4011b238e6aCba959B4b6463A75E9177EcEd9a2",
+    "marketplaceProxy": "0x90D07AFb70F3573F155Ae36d041d82D52011cc2A",
+    "paymentToken": "0x036CbD53842c5426634e7929541eC2318f3dCF7e",
+    "adminAuthority": "0x8a0452fe1A4965F0146De9E983BA8D59E810D600",
+    "treasury": "0xc380b67a8e1A9E108c8AEF6dbE8b7bA77Da16A5D",
+    "gatewaySigner": "0x533D5Ce8797711c2AaB8E0d20D7DBba09d06D010",
+    "nurtureContributor": "0x357B3bA3582f724F8c39A34AcB6922fBC6625778",
+    "pipelineOperator": "0xAdcC77CEC1B9a953fcbCfc656783b04852759dBB"
+  },
+  "abiBaseUrl": "../ABI"
+}

@@ -21,11 +21,15 @@ if ((await ethers.provider.getCode(datasetRegistryAddress)) === "0x") {
   throw new Error("DATASET_REGISTRY has no deployed code");
 }
 const datasetRegistry = await ethers.getContractAt("IDatasetRegistry", datasetRegistryAddress);
-const [network, datasetId, manifestVersion] = await Promise.all([
+const [network, nextDatasetId, manifestVersion] = await Promise.all([
   ethers.provider.getNetwork(),
   datasetRegistry.nextDatasetId(),
   datasetRegistry.WEIGHTS_MANIFEST_VERSION(),
 ]);
+const datasetId = process.env.MANIFEST_DATASET_ID
+  ? BigInt(process.env.MANIFEST_DATASET_ID)
+  : nextDatasetId;
+if (datasetId <= 0n) throw new Error("MANIFEST_DATASET_ID must be positive");
 const expectedChainId = BigInt(required("EXPECTED_CHAIN_ID"));
 if (network.chainId !== expectedChainId) {
   throw new Error(`chain ID mismatch: expected ${expectedChainId}, got ${network.chainId}`);

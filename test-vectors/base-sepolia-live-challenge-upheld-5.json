@@ -1,0 +1,17 @@
+{
+  "schema": "main-protocol.weight-challenge-evidence.v1",
+  "datasetId": "5",
+  "chainId": "84532",
+  "datasetRegistry": "0x5dD671458580ACc54B057EBF20cBd55d224BF129",
+  "weightsRoot": "0xcd32f48f6ac9a644e82f4c6c4830f2b375c8dd5c1f21e191ee1ae6622db79c82",
+  "challenger": "0x357B3bA3582f724F8c39A34AcB6922fBC6625778",
+  "submittedAt": "2026-08-19T04:50:00.000Z",
+  "reason": "wrong-total-weight",
+  "summary": "Base Sepolia browser role-flow evidence for the upheld challenge path.",
+  "artifacts": [
+    {
+      "uri": "http://localhost:4176/test-vectors/base-sepolia-live-manifest-current-5.json",
+      "digest": "0x9999999999999999999999999999999999999999999999999999999999999999"
+    }
+  ]
+}
