@@ -21,8 +21,14 @@ const operatorAddress = address(
   "TEST_OPERATOR_ADDRESS",
 );
 const reporter = new Reporter("operator", ctx);
+const configuredDatasetId = env("TEST_DATASET_ID");
+const nextDatasetId = await ctx.contracts.dataset.nextDatasetId();
+const snapshotDatasetId =
+  configuredDatasetId && BigInt(configuredDatasetId) < nextDatasetId
+    ? configuredDatasetId
+    : undefined;
 await reporter.step("Operator、Contributor 映射、nextDatasetId 和注册前查询", () =>
-  protocolSnapshot(ctx, env("TEST_DATASET_ID")),
+  protocolSnapshot(ctx, snapshotDatasetId ?? null),
 );
 
 if (!env("OPERATOR_PRIVATE_KEY"))

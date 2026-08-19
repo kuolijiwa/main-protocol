@@ -15,10 +15,15 @@ import {
   getAddress,
   isAddress,
   keccak256,
+  toUtf8Bytes,
 } from "ethers";
 
 const ROOT = path.resolve(fileURLToPath(new URL("../../..", import.meta.url)));
 const BASE_SEPOLIA_CHAIN_ID = 84532n;
+const SAFE_GUARD_STORAGE_SLOT = keccak256(toUtf8Bytes("guard_manager.guard.address"));
+const SAFE_FALLBACK_HANDLER_STORAGE_SLOT = keccak256(
+  toUtf8Bytes("fallback_manager.handler.address"),
+);
 const abiCoder = AbiCoder.defaultAbiCoder();
 
 function loadSimpleEnv(file) {
@@ -269,6 +274,21 @@ export async function safeSnapshot(ctx) {
       unavailable: error instanceof Error ? error.shortMessage || error.message : String(error),
     };
   }
+  for (const [key, slot] of [
+    ["guard", SAFE_GUARD_STORAGE_SLOT],
+    ["fallbackHandler", SAFE_FALLBACK_HANDLER_STORAGE_SLOT],
+  ]) {
+    if (result[key]?.unavailable) {
+      try {
+        const word = await ctx.provider.getStorage(ctx.addresses.adminMultisig, slot);
+        result[key] = address(`0x${word.slice(-40)}`, `Safe ${key} storage`);
+      } catch (error) {
+        result[key] = {
+          unavailable: error instanceof Error ? error.shortMessage || error.message : String(error),
+        };
+      }
+    }
+  }
   return result;
 }
 
@@ -324,7 +344,7 @@ export async function protocolSnapshot(ctx, datasetId = env("TEST_DATASET_ID")) 
   snapshot.roles.contributor.operatorAssignment = await c.contributor.operatorContributor(
     addresses.pipelineOperator,
   );
-  if (datasetId !== undefined)
+  if (datasetId !== undefined && datasetId !== null)
     snapshot.dataset = await datasetSnapshot(
       ctx,
       uint(datasetId, "TEST_DATASET_ID", { positive: true }),

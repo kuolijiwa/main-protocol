@@ -56,6 +56,62 @@ else {
         "buyCopy wrong expectedPrice",
       );
     });
+    if (args.has("negative-tests")) {
+      await reporter.step("Buyer 购买异常路径（eth_call，不广播）", async () => {
+        const checks = [];
+        const copyDatasetId = env("NEGATIVE_COPY_DATASET_ID")
+          ? uint(env("NEGATIVE_COPY_DATASET_ID"), "NEGATIVE_COPY_DATASET_ID", {
+              positive: true,
+            })
+          : datasetId;
+        const inactiveDatasetId = env("NEGATIVE_INACTIVE_DATASET_ID")
+          ? uint(env("NEGATIVE_INACTIVE_DATASET_ID"), "NEGATIVE_INACTIVE_DATASET_ID", {
+              positive: true,
+            })
+          : datasetId;
+        const copy = await ctx.contracts.market.getListing(copyDatasetId, 0);
+        if (copy.active) {
+          checks.push(
+            await expectRevert(
+              () =>
+                market.buyCopy.staticCall(
+                  copyDatasetId,
+                  copy.price,
+                  BigInt(Math.floor(Date.now() / 1000)) - 1n,
+                ),
+              "buyCopy expired deadline",
+            ),
+          );
+          checks.push(
+            await expectRevert(
+              () =>
+                market.buyCopy.staticCall(
+                  copyDatasetId,
+                  copy.price,
+                  BigInt(Math.floor(Date.now() / 1000)) + 600n,
+                ),
+              "buyCopy duplicate or other buyer guard",
+            ),
+          );
+        }
+        const inactive = await ctx.contracts.market.getListing(inactiveDatasetId, 1);
+        if (!inactive.active) {
+          checks.push(
+            await expectRevert(
+              () =>
+                market.buyExclusive.staticCall(
+                  inactiveDatasetId,
+                  inactive.price,
+                  BigInt(Math.floor(Date.now() / 1000)) + 600n,
+                ),
+              "buyExclusive inactive listing",
+            ),
+          );
+        }
+        if (checks.length === 0) throw new Error("no negative purchase case was available");
+        return { checks };
+      });
+    }
     if (args.has("approve")) {
       await writeGuard(ctx, args, "Buyer token approve");
       const amount = uint(env("TEST_APPROVE_AMOUNT", "0"), "TEST_APPROVE_AMOUNT", {

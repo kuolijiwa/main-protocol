@@ -1,0 +1,27 @@
+{
+  "schema": "main-protocol.weights-manifest.v1",
+  "datasetId": "1",
+  "chainId": "84532",
+  "datasetRegistry": "0xbFb167F60F6425910DB2da27d2AFa543801fe042",
+  "leafEncoding": "keccak256(abi.encode(address,uint256))",
+  "pairHashing": "sorted-keccak256;promote-unpaired",
+  "totalWeight": "100",
+  "weightsRoot": "0xca4b0a2ef9e789f7bc1e695db27f6e7d8f90bde27f19949888b50d800f589b8e",
+  "entries": [
+    {
+      "address": "0x1111111111111111111111111111111111111111",
+      "weight": "40",
+      "proof": ["0x39844527b7b12cc7ecac563c58722503c62aab854482532c4b0f030951f7cfcf"]
+    },
+    {
+      "address": "0x2222222222222222222222222222222222222222",
+      "weight": "60",
+      "proof": ["0x61626e5c56cef7878fc1fbbf1163f5852e839dee8ea4d1b28dd89b1fd6b90f6c"]
+    }
+  ],
+  "pipeline": {
+    "version": "browser-e2e-pipeline-v1",
+    "generatedAt": "2026-08-19T06:40:00.000Z",
+    "contentDigest": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  }
+}

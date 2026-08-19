@@ -109,6 +109,69 @@ if (args.values["set-challenge-window"] !== undefined) {
     });
   }
 }
+
+if (args.values["set-treasury"] !== undefined) {
+  await writeGuard(ctx, args, "Timelock setTreasury");
+  const newTreasury = args.values["set-treasury"];
+  const signer = signerFor(
+    ctx,
+    env("ADMIN_PRIVATE_KEY") ? "ADMIN_PRIVATE_KEY" : "DEPLOYER_PRIVATE_KEY",
+    ctx.addresses.adminMultisig,
+  );
+  const timelock = connect(ctx.contracts.timelock, signer);
+  const target = ctx.addresses.protocolConfig;
+  const data = ctx.contracts.config.interface.encodeFunctionData("setTreasury", [newTreasury]);
+  const predecessor = ZeroHash;
+  const salt = id(`base-sepolia-live-treasury-${newTreasury.toLowerCase()}`);
+  const operationId = await ctx.contracts.timelock.hashOperation(
+    target,
+    0n,
+    data,
+    predecessor,
+    salt,
+  );
+  if (await ctx.contracts.timelock.isOperationDone(operationId)) {
+    reporter.skip("Timelock setTreasury", "该治理操作已执行");
+  } else {
+    if (!(await ctx.contracts.timelock.isOperationPending(operationId))) {
+      const delay = await ctx.contracts.timelock.getMinDelay();
+      await reporter.step("Timelock schedule setTreasury", () =>
+        sendTx(
+          ctx,
+          timelock,
+          "schedule",
+          [target, 0n, data, predecessor, salt, delay],
+          "schedule setTreasury",
+        ),
+      );
+    } else reporter.skip("Timelock schedule setTreasury", "治理操作已经 Pending");
+
+    while (!(await ctx.contracts.timelock.isOperationReady(operationId))) {
+      const timestamp = await ctx.contracts.timelock.getTimestamp(operationId);
+      const now = BigInt(Math.floor(Date.now() / 1000));
+      const remaining = timestamp > now ? timestamp - now : 1n;
+      await new Promise((resolve) =>
+        setTimeout(resolve, Number(remaining > 10n ? 10n : remaining) * 1000),
+      );
+    }
+    await reporter.step("Timelock execute setTreasury", () =>
+      sendTx(
+        ctx,
+        timelock,
+        "execute",
+        [target, 0n, data, predecessor, salt],
+        "execute setTreasury",
+      ),
+    );
+    await reporter.step("新 Treasury 查询", async () => {
+      const actual = await ctx.contracts.config.treasury();
+      if (actual.toLowerCase() !== newTreasury.toLowerCase())
+        throw new Error(`treasury expected ${newTreasury}, got ${actual}`);
+      await updateEnv("TREASURY", newTreasury);
+      return { treasury: actual };
+    });
+  }
+}
 await reporter.finish({
   mode: args.has("safe-tx") ? "read-only+governance-calldata" : "read-only",
 });

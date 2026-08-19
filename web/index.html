@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Main Protocol Console</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#overview" data-nav="overview">
+          <span class="brand-mark">MP</span>
+          <span><strong>Main Protocol</strong><small>Fixed-price V1 Console</small></span>
+        </a>
+        <nav class="top-nav" aria-label="主导航">
+          <a href="#overview" data-nav="overview">概览</a>
+          <a href="#datasets" data-nav="datasets">Datasets</a>
+          <a href="#activity" data-nav="activity">Activity</a>
+        </nav>
+        <div class="wallet-area">
+          <span id="network-pill" class="pill muted">连接检查中</span>
+          <button id="connect-wallet" class="button primary">连接钱包</button>
+          <span id="wallet-address" class="wallet-address"></span>
+        </div>
+      </header>
+
+      <div id="release-banner" class="release-banner hidden"></div>
+      <div id="toast-region" class="toast-region" aria-live="polite"></div>
+
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="sidebar-label">PUBLIC</div>
+          <a href="#overview" data-nav="overview" class="side-link active"><span>⌂</span>概览</a>
+          <a href="#datasets" data-nav="datasets" class="side-link"><span>▦</span>Datasets</a>
+          <a href="#access" data-nav="access" class="side-link"><span>◉</span>访问检查</a>
+          <div class="sidebar-label">OPERATIONS</div>
+          <a href="#buyer" data-nav="buyer" class="side-link gated" data-capability="buy"
+            ><span>↗</span>Buyer</a
+          >
+          <a
+            href="#contributor"
+            data-nav="contributor"
+            class="side-link gated"
+            data-capability="register"
+            ><span>✦</span>Contributor</a
+          >
+          <a href="#claimant" data-nav="claimant" class="side-link gated" data-capability="claim"
+            ><span>◌</span>Claimant</a
+          >
+          <a href="#treasury" data-nav="treasury" class="side-link gated" data-capability="treasury"
+            ><span>▣</span>Treasury</a
+          >
+          <a href="#admin" data-nav="admin" class="side-link gated" data-capability="admin"
+            ><span>◆</span>Admin</a
+          >
+          <a
+            href="#governance"
+            data-nav="governance"
+            class="side-link gated"
+            data-capability="timelock"
+            ><span>⌘</span>Timelock</a
+          >
+          <div class="sidebar-footer">
+            <div class="status-dot"></div>
+            <div><strong>Testnet</strong><small>Base Sepolia · 84532</small></div>
+          </div>
+        </aside>
+
+        <main id="app" class="main-content">
+          <section class="loading-state">
+            <div class="spinner"></div>
+            <p>正在加载协议配置和 ABI…</p>
+          </section>
+        </main>
+      </div>
+    </div>
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
